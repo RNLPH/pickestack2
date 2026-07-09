@@ -421,30 +421,6 @@ const totalGamesPlayed =
       0
     );  
 
-    const standings = [
-  ...players,
-  ...courts.flatMap((c) => c.players),
-].sort((a, b) => {
-
-  const winRateA =
-    (a.wins || 0) + (a.losses || 0) > 0
-      ? (a.wins || 0) /
-        ((a.wins || 0) + (a.losses || 0))
-      : 0;
-
-  const winRateB =
-    (b.wins || 0) + (b.losses || 0) > 0
-      ? (b.wins || 0) /
-        ((b.wins || 0) + (b.losses || 0))
-      : 0;
-
-  if (winRateB !== winRateA) {
-    return winRateB - winRateA;
-  }
-
-  return (b.wins || 0) - (a.wins || 0);
-});
-
   return (
     <div className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -540,57 +516,11 @@ const totalGamesPlayed =
 </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-4 mb-6">
-  <h2 className="text-2xl font-bold mb-4">
-    🏆 Standings
-  </h2>
-
-  {standings.length === 0 ? (
-    <p>No players available</p>
-  ) : (
-    standings.map((player, index) => (
-      <div
-        key={player.id}
-        className="flex justify-between border-b py-2"
-      >
-        <div>
-          <strong>
-            {index === 0 && "🥇 "}
-            {index === 1 && "🥈 "}
-            {index === 2 && "🥉 "}
-            #{index + 1} {player.name}
-          </strong>
-        </div>
-
-        <div className="text-sm">
-  W: {player.wins || 0}
-  {" | "}
-  L: {player.losses || 0}
-  {" | "}
-  WR: {
-    ((player.wins || 0) +
-      (player.losses || 0))
-      ? Math.round(
-          ((player.wins || 0) /
-            ((player.wins || 0) +
-             (player.losses || 0))) *
-          100
-        )
-      : 0
-  }%
-</div>
-      </div>
-    ))
-  )}
-</div>
-
-<div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl shadow p-4">
             <h2 className="text-2xl font-bold mb-4">
               Waiting Queue
             </h2>
-
-
 
             {sortedPlayers.length === 0 ? (
               <p>No players waiting</p>
