@@ -15,8 +15,6 @@ export default function App() {
 
   const [name, setName] = useState("");
   const [error, setError] = useState("");
-  const [selectedCourt, setSelectedCourt] =
-  useState({});
 
   const [players, setPlayers] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PLAYERS);
@@ -42,33 +40,24 @@ export default function App() {
     );
   }, [courts]);
 
-const sortPlayers = (playerList) => {
-  return [...playerList].sort((a, b) => {
+  const sortPlayers = (playerList) => {
+  const grouped = {};
 
-    // Priority 1 - Lowest games played
-    if (a.gamesPlayed !== b.gamesPlayed) {
-      return a.gamesPlayed - b.gamesPlayed;
+  playerList.forEach((player) => {
+    if (!grouped[player.gamesPlayed]) {
+      grouped[player.gamesPlayed] = [];
     }
 
-    // Priority 2 - Winners before losers
-    if (
-      a.bracket === "winner" &&
-      b.bracket === "loser"
-    ) {
-      return -1;
-    }
-
-    if (
-      a.bracket === "loser" &&
-      b.bracket === "winner"
-    ) {
-      return 1;
-    }
-
-    // Priority 3 - Waiting longest
-    return a.waitingSince - b.waitingSince;
+    grouped[player.gamesPlayed].push(player);
   });
+
+  return Object.keys(grouped)
+    .sort((a, b) => Number(a) - Number(b))
+    .flatMap((gamesPlayed) =>
+      shufflePlayers(grouped[gamesPlayed])
+    );
 };
+
 
 const shufflePlayers = (playerList) => {
   const shuffled = [...playerList];
@@ -138,7 +127,6 @@ const shufflePlayers = (playerList) => {
   gamesPlayed: 0,
   wins: 0,
   losses: 0,
-  bracket: "normal",
   waitingSince: Date.now(),
 },
     ]);
@@ -149,25 +137,11 @@ const shufflePlayers = (playerList) => {
     inputRef.current?.focus();
   };
 
-const removePlayer = (id) => {
-  const player = players.find(
-    (p) => p.id === id
-  );
-
-  if (!player) return;
-
-  if (
-    !window.confirm(
-      `Remove ${player.name} from the waiting queue?`
-    )
-  ) {
-    return;
-  }
-
-  setPlayers((prev) =>
-    prev.filter((player) => player.id !== id)
-  );
-};
+  const removePlayer = (id) => {
+    setPlayers((prev) =>
+      prev.filter((player) => player.id !== id)
+    );
+  };
 
   const addCourt = () => {
     setCourts((prev) => {
@@ -184,101 +158,6 @@ const removePlayer = (id) => {
     });
   };
 
-const removeCourtPlayer = (courtId, playerId) => {
-  const court = courts.find(
-    (c) => c.id === courtId
-  );
-
-  if (!court) return;
-
-  const player = court.players.find(
-    (p) => p.id === playerId
-  );
-
-  if (!player) return;
-
-  if (
-    !window.confirm(
-      `Remove ${player.name} from the court?`
-    )
-  ) {
-    return;
-  }
-
-  setPlayers((prev) =>
-    sortPlayers([
-      ...prev,
-      {
-        ...player,
-        waitingSince: Date.now(),
-      },
-    ])
-  );
-
-  setCourts((prev) =>
-    prev.map((court) =>
-      court.id === courtId
-        ? {
-            ...court,
-            players: court.players.filter(
-              (p) => p.id !== playerId
-            ),
-          }
-        : court
-    )
-  );
-};
-
-const addPlayerToCourt = (
-  playerId,
-  courtId
-) => {
-  const player = players.find(
-    (p) => p.id === playerId
-  );
-
-  if (!player) return;
-
-  const court = courts.find(
-    (c) => c.id === Number(courtId)
-  );
-
-  if (!court) return;
-
- if (court.players.length >= 4) {
-  alert("Court is already full.");
-  return;
-}
-
-if (
-  !window.confirm(
-    `Add ${player.name} to Court ${court.id}?`
-  )
-) {
-  return;
-}
-
-  setCourts((prev) =>
-    prev.map((court) =>
-      court.id === Number(courtId)
-        ? {
-            ...court,
-            players: [
-              ...court.players,
-              player,
-            ],
-          }
-        : court
-    )
-  );
-
-  setPlayers((prev) =>
-    prev.filter(
-      (p) => p.id !== playerId
-    )
-  );
-};
-
   const removeCourt = () => {
     if (courts.length <= 1) return;
 
@@ -294,7 +173,7 @@ if (
     setCourts((prev) => prev.slice(0, -1));
   };
 
-const assignPlayers = () => {
+ const assignPlayers = () => {
   const emptyCourt = courts.find(
     (court) => court.players.length === 0
   );
@@ -313,17 +192,16 @@ const assignPlayers = () => {
 
   const sorted = sortPlayers(players);
 
-  const selectedPlayers = sorted.slice(0, 4);
-
-  const randomizedTeams =
-    shufflePlayers(selectedPlayers);
+  const selectedPlayers = shufflePlayers(
+    sorted.slice(0, 4)
+  );
 
   setCourts((prev) =>
     prev.map((court) =>
       court.id === emptyCourt.id
         ? {
             ...court,
-            players: randomizedTeams,
+            players: selectedPlayers,
           }
         : court
     )
@@ -354,18 +232,17 @@ const endGame = (courtId, winningTeam) => {
         (winningTeam === "A" && isTeamA) ||
         (winningTeam === "B" && !isTeamA);
 
-    return {
-  ...player,
-  gamesPlayed: player.gamesPlayed + 1,
-  wins:
-    (player.wins || 0) +
-    (won ? 1 : 0),
-  losses:
-    (player.losses || 0) +
-    (won ? 0 : 1),
-  bracket: won ? "winner" : "loser",
-  waitingSince: Date.now(),
-};
+      return {
+        ...player,
+        gamesPlayed: player.gamesPlayed + 1,
+        wins:
+          (player.wins || 0) +
+          (won ? 1 : 0),
+        losses:
+          (player.losses || 0) +
+          (won ? 0 : 1),
+        waitingSince: Date.now(),
+      };
     }
   );
 
@@ -536,89 +413,20 @@ const totalGamesPlayed =
                     </div>
 
                     <div className="text-sm text-gray-500">
-  Games: {player.gamesPlayed} |
-  W: {player.wins || 0} |
-  L: {player.losses || 0}
-</div>
-
-<div
-  className={`text-xs font-semibold ${
-    player.bracket === "winner"
-      ? "text-green-600"
-      : player.bracket === "loser"
-      ? "text-red-600"
-      : "text-gray-500"
-  }`}
->
-  {player.bracket
-    ? player.bracket.toUpperCase()
-    : "NORMAL"}
-</div>
+                      Games: {player.gamesPlayed} |
+W: {player.wins || 0} |
+L: {player.losses || 0}
+                    </div>
                   </div>
 
-
-<div className="flex flex-col gap-1">
-  <select
-    value={
-      selectedCourt[player.id] || ""
-    }
-    onChange={(e) =>
-      setSelectedCourt((prev) => ({
-        ...prev,
-        [player.id]: e.target.value,
-      }))
-    }
-    className="border rounded px-2 py-1 text-sm"
-  >
-    <option value="">
-      Select Court
-    </option>
-
-    {courts.map((court) => (
-      <option
-        key={court.id}
-        value={court.id}
-      >
-        Court {court.id} (
-        {court.players.length}/4)
-      </option>
-    ))}
-  </select>
-
-  <div className="flex gap-1">
-    <button
-      onClick={() => {
-        const courtId =
-          selectedCourt[player.id];
-
-        if (!courtId) {
-          alert(
-            "Please select a court first."
-          );
-          return;
-        }
-
-        addPlayerToCourt(
-          player.id,
-          courtId
-        );
-      }}
-      className="bg-green-500 text-white px-2 py-1 rounded text-sm"
-    >
-      ➕
-    </button>
-
-    <button
-      onClick={() =>
-        removePlayer(player.id)
-      }
-      className="bg-red-500 text-white px-2 py-1 rounded text-sm"
-    >
-      ✕
-    </button>
-  </div>
-</div>
-
+                  <button
+                    onClick={() =>
+                      removePlayer(player.id)
+                    }
+                    className="bg-red-500 text-white px-2 py-1 rounded"
+                  >
+                    Remove
+                  </button>
                 </div>
               ))
             )}
@@ -649,26 +457,12 @@ const totalGamesPlayed =
     {court.players
       .slice(0, 2)
       .map((player) => (
-
-       <div
-  key={player.id}
-  className="bg-blue-100 p-2 rounded mb-1 flex justify-between items-center"
->
-  <span>{player.name}</span>
-
-  <button
-    onClick={() =>
-      removeCourtPlayer(
-        court.id,
-        player.id
-      )
-    }
-    className="text-red-600 font-bold"
-  >
-    ✕
-  </button>
-</div>
-
+        <div
+          key={player.id}
+          className="bg-blue-100 p-2 rounded mb-1"
+        >
+          {player.name}
+        </div>
       ))}
   </div>
 
@@ -680,26 +474,12 @@ const totalGamesPlayed =
     {court.players
       .slice(2, 4)
       .map((player) => (
-
-       <div
-  key={player.id}
-  className="bg-purple-100 p-2 rounded mb-1 flex justify-between items-center"
->
-  <span>{player.name}</span>
-
-  <button
-    onClick={() =>
-      removeCourtPlayer(
-        court.id,
-        player.id
-      )
-    }
-    className="text-red-600 font-bold"
-  >
-    ✕
-  </button>
-</div>
-
+        <div
+          key={player.id}
+          className="bg-purple-100 p-2 rounded mb-1"
+        >
+          {player.name}
+        </div>
       ))}
   </div>
 </div>
