@@ -122,13 +122,11 @@ const shufflePlayers = (playerList) => {
     setPlayers((prev) => [
       ...prev,
       {
-  id: crypto.randomUUID(),
-  name: trimmedName,
-  gamesPlayed: 0,
-  wins: 0,
-  losses: 0,
-  waitingSince: Date.now(),
-},
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        gamesPlayed: 0,
+        waitingSince: Date.now(),
+      },
     ]);
 
     setName("");
@@ -173,44 +171,41 @@ const shufflePlayers = (playerList) => {
     setCourts((prev) => prev.slice(0, -1));
   };
 
- const assignPlayers = () => {
-  const emptyCourt = courts.find(
-    (court) => court.players.length === 0
-  );
+  const assignPlayers = () => {
+    let availablePlayers = sortPlayers(players);
 
-  if (!emptyCourt) {
-    alert("No empty courts available.");
-    return;
-  }
+    let changed = false;
 
-  if (players.length < 4) {
-    alert(
-      "Need at least 4 waiting players."
-    );
-    return;
-  }
+    const updatedCourts = courts.map((court) => {
+      if (
+        court.players.length === 0 &&
+        availablePlayers.length >= 4
+      ) {
+        changed = true;
 
-  const sorted = sortPlayers(players);
+    const selectedPlayers = shufflePlayers(
+  availablePlayers.slice(0, 4)
+);
 
-  const selectedPlayers = shufflePlayers(
-    sorted.slice(0, 4)
-  );
+availablePlayers =
+  availablePlayers.slice(4);
 
-  setCourts((prev) =>
-    prev.map((court) =>
-      court.id === emptyCourt.id
-        ? {
-            ...court,
-            players: selectedPlayers,
-          }
-        : court
-    )
-  );
+        return {
+          ...court,
+          players: selectedPlayers,
+        };
+      }
 
-  setPlayers(sorted.slice(4));
-};
+      return court;
+    });
 
-const endGame = (courtId, winningTeam) => {
+    if (changed) {
+      setCourts(updatedCourts);
+      setPlayers(availablePlayers);
+    }
+  };
+
+  const endGame = (courtId) => {
   if (players.length < 4) {
     alert(
       "You need at least 4 players waiting in the queue before ending a game."
@@ -225,41 +220,21 @@ const endGame = (courtId, winningTeam) => {
   if (!court) return;
 
   const returningPlayers = court.players.map(
-    (player, index) => {
-      const isTeamA = index < 2;
-
-      const won =
-        (winningTeam === "A" && isTeamA) ||
-        (winningTeam === "B" && !isTeamA);
-
-      return {
-        ...player,
-        gamesPlayed: player.gamesPlayed + 1,
-        wins:
-          (player.wins || 0) +
-          (won ? 1 : 0),
-        losses:
-          (player.losses || 0) +
-          (won ? 0 : 1),
-        waitingSince: Date.now(),
-      };
-    }
+    (player) => ({
+      ...player,
+      gamesPlayed: player.gamesPlayed + 1,
+      waitingSince: Date.now(),
+    })
   );
 
   setPlayers((prev) =>
-    sortPlayers([
-      ...prev,
-      ...returningPlayers,
-    ])
+    sortPlayers([...prev, ...returningPlayers])
   );
 
   setCourts((prev) =>
     prev.map((court) =>
       court.id === courtId
-        ? {
-            ...court,
-            players: [],
-          }
+        ? { ...court, players: [] }
         : court
     )
   );
@@ -298,6 +273,19 @@ const totalGamesPlayed =
       0
     );  
 
+  useEffect(() => {
+    const emptyCourtExists = courts.some(
+      (court) => court.players.length === 0
+    );
+
+    if (
+      emptyCourtExists &&
+      players.length >= 4
+    ) {
+      assignPlayers();
+    }
+  }, [players, courts]);
+
   return (
     <div className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -332,11 +320,11 @@ const totalGamesPlayed =
             </button>
 
             <button
-  onClick={assignPlayers}
-  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
->
-  Start Game
-</button>
+              onClick={assignPlayers}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+            >
+              Assign
+            </button>
 
             <button
               onClick={addCourt}
@@ -413,9 +401,7 @@ const totalGamesPlayed =
                     </div>
 
                     <div className="text-sm text-gray-500">
-                      Games: {player.gamesPlayed} |
-W: {player.wins || 0} |
-L: {player.losses || 0}
+                      Games Played: {player.gamesPlayed}
                     </div>
                   </div>
 
@@ -448,72 +434,28 @@ L: {player.losses || 0}
                       Empty Court
                     </p>
                   ) : (
-                <div className="space-y-4">
-  <div>
-    <h3 className="font-bold text-blue-600">
-      Team A
-    </h3>
-
-    {court.players
-      .slice(0, 2)
-      .map((player) => (
-        <div
-          key={player.id}
-          className="bg-blue-100 p-2 rounded mb-1"
-        >
-          {player.name}
-        </div>
-      ))}
-  </div>
-
-  <div>
-    <h3 className="font-bold text-purple-600">
-      Team B
-    </h3>
-
-    {court.players
-      .slice(2, 4)
-      .map((player) => (
-        <div
-          key={player.id}
-          className="bg-purple-100 p-2 rounded mb-1"
-        >
-          {player.name}
-        </div>
-      ))}
-  </div>
-</div>
+                    <div className="space-y-2">
+                      {court.players.map((player) => (
+                        <div
+                          key={player.id}
+                          className="bg-green-100 p-2 rounded"
+                        >
+                          {player.name}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
-<div className="grid grid-cols-2 gap-2 mt-4">
-  <button
-    onClick={() =>
-      endGame(court.id, "A")
-    }
-    disabled={
-      court.players.length === 0 ||
-      players.length < 4
-    }
-    className="bg-blue-500 hover:bg-blue-600 text-white py-2 rounded disabled:bg-gray-400"
-  >
-    Team A Wins
-  </button>
-
-  <button
-    onClick={() =>
-      endGame(court.id, "B")
-    }
-    disabled={
-      court.players.length === 0 ||
-      players.length < 4
-    }
-    className="bg-purple-500 hover:bg-purple-600 text-white py-2 rounded disabled:bg-gray-400"
-  >
-    Team B Wins
-  </button>
-</div>
-
-
+                 <button
+  onClick={() => endGame(court.id)}
+  disabled={
+    court.players.length === 0 ||
+    players.length < 4
+  }
+  className="mt-4 w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white py-2 rounded"
+>
+  End Game
+</button>
                 </div>
               ))}
             </div>

@@ -41,41 +41,14 @@ export default function App() {
   }, [courts]);
 
   const sortPlayers = (playerList) => {
-  const grouped = {};
+    return [...playerList].sort((a, b) => {
+      if (a.gamesPlayed !== b.gamesPlayed) {
+        return a.gamesPlayed - b.gamesPlayed;
+      }
 
-  playerList.forEach((player) => {
-    if (!grouped[player.gamesPlayed]) {
-      grouped[player.gamesPlayed] = [];
-    }
-
-    grouped[player.gamesPlayed].push(player);
-  });
-
-  return Object.keys(grouped)
-    .sort((a, b) => Number(a) - Number(b))
-    .flatMap((gamesPlayed) =>
-      shufflePlayers(grouped[gamesPlayed])
-    );
-};
-
-
-const shufflePlayers = (playerList) => {
-  const shuffled = [...playerList];
-
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(
-      Math.random() * (i + 1)
-    );
-
-    [shuffled[i], shuffled[j]] = [
-      shuffled[j],
-      shuffled[i],
-    ];
-  }
-
-  return shuffled;
-};
-
+      return a.waitingSince - b.waitingSince;
+    });
+  };
 
   const addPlayer = () => {
     const trimmedName = name.trim();
@@ -122,13 +95,11 @@ const shufflePlayers = (playerList) => {
     setPlayers((prev) => [
       ...prev,
       {
-  id: crypto.randomUUID(),
-  name: trimmedName,
-  gamesPlayed: 0,
-  wins: 0,
-  losses: 0,
-  waitingSince: Date.now(),
-},
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        gamesPlayed: 0,
+        waitingSince: Date.now(),
+      },
     ]);
 
     setName("");
@@ -173,97 +144,66 @@ const shufflePlayers = (playerList) => {
     setCourts((prev) => prev.slice(0, -1));
   };
 
- const assignPlayers = () => {
-  const emptyCourt = courts.find(
-    (court) => court.players.length === 0
-  );
+  const assignPlayers = () => {
+    let availablePlayers = sortPlayers(players);
 
-  if (!emptyCourt) {
-    alert("No empty courts available.");
-    return;
-  }
+    let changed = false;
 
-  if (players.length < 4) {
-    alert(
-      "Need at least 4 waiting players."
+    const updatedCourts = courts.map((court) => {
+      if (
+        court.players.length === 0 &&
+        availablePlayers.length >= 4
+      ) {
+        changed = true;
+
+        const selectedPlayers =
+          availablePlayers.slice(0, 4);
+
+        availablePlayers =
+          availablePlayers.slice(4);
+
+        return {
+          ...court,
+          players: selectedPlayers,
+        };
+      }
+
+      return court;
+    });
+
+    if (changed) {
+      setCourts(updatedCourts);
+      setPlayers(availablePlayers);
+    }
+  };
+
+  const endGame = (courtId) => {
+    const court = courts.find(
+      (c) => c.id === courtId
     );
-    return;
-  }
 
-  const sorted = sortPlayers(players);
+    if (!court) return;
 
-  const selectedPlayers = shufflePlayers(
-    sorted.slice(0, 4)
-  );
-
-  setCourts((prev) =>
-    prev.map((court) =>
-      court.id === emptyCourt.id
-        ? {
-            ...court,
-            players: selectedPlayers,
-          }
-        : court
-    )
-  );
-
-  setPlayers(sorted.slice(4));
-};
-
-const endGame = (courtId, winningTeam) => {
-  if (players.length < 4) {
-    alert(
-      "You need at least 4 players waiting in the queue before ending a game."
-    );
-    return;
-  }
-
-  const court = courts.find(
-    (c) => c.id === courtId
-  );
-
-  if (!court) return;
-
-  const returningPlayers = court.players.map(
-    (player, index) => {
-      const isTeamA = index < 2;
-
-      const won =
-        (winningTeam === "A" && isTeamA) ||
-        (winningTeam === "B" && !isTeamA);
-
-      return {
+    const returningPlayers = court.players.map(
+      (player) => ({
         ...player,
         gamesPlayed: player.gamesPlayed + 1,
-        wins:
-          (player.wins || 0) +
-          (won ? 1 : 0),
-        losses:
-          (player.losses || 0) +
-          (won ? 0 : 1),
         waitingSince: Date.now(),
-      };
-    }
-  );
+      })
+    );
 
-  setPlayers((prev) =>
-    sortPlayers([
-      ...prev,
-      ...returningPlayers,
-    ])
-  );
+    setPlayers((prev) =>
+      sortPlayers([...prev, ...returningPlayers])
+    );
 
-  setCourts((prev) =>
-    prev.map((court) =>
-      court.id === courtId
-        ? {
-            ...court,
-            players: [],
-          }
-        : court
-    )
-  );
-};
+    setCourts((prev) =>
+      prev.map((court) =>
+        court.id === courtId
+          ? { ...court, players: [] }
+          : court
+      )
+    );
+  };
 
   const resetAll = () => {
     const confirmed = window.confirm(
@@ -281,22 +221,20 @@ const endGame = (courtId, winningTeam) => {
     setCourts(DEFAULT_COURTS);
   };
 
-const sortedPlayers = sortPlayers(players);
+  const sortedPlayers = sortPlayers(players);
 
-const activePlayers = courts.reduce(
-  (count, court) => count + court.players.length,
-  0
-);
+  useEffect(() => {
+    const emptyCourtExists = courts.some(
+      (court) => court.players.length === 0
+    );
 
-const totalPlayers =
-  players.length + activePlayers;
-
-const totalGamesPlayed =
-  [...players, ...courts.flatMap(c => c.players)]
-    .reduce(
-      (sum, p) => sum + p.gamesPlayed,
-      0
-    );  
+    if (
+      emptyCourtExists &&
+      players.length >= 4
+    ) {
+      assignPlayers();
+    }
+  }, [players, courts]);
 
   return (
     <div className="min-h-screen bg-slate-100 p-6">
@@ -332,11 +270,11 @@ const totalGamesPlayed =
             </button>
 
             <button
-  onClick={assignPlayers}
-  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
->
-  Start Game
-</button>
+              onClick={assignPlayers}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+            >
+              Assign
+            </button>
 
             <button
               onClick={addCourt}
@@ -366,31 +304,16 @@ const totalGamesPlayed =
             </div>
           )}
 
-        <div className="mt-4 space-y-1">
-  <p>
-    <strong>Courts:</strong> {courts.length}
-  </p>
+          <div className="mt-4">
+            <p>
+              <strong>Courts:</strong> {courts.length}
+            </p>
 
-  <p>
-    <strong>Players Waiting:</strong>{" "}
-    {players.length}
-  </p>
-
-  <p>
-    <strong>Players Playing:</strong>{" "}
-    {activePlayers}
-  </p>
-
-  <p>
-    <strong>Total Players:</strong>{" "}
-    {totalPlayers}
-  </p>
-
-  <p>
-    <strong>Total Games Recorded:</strong>{" "}
-    {totalGamesPlayed}
-  </p>
-</div>
+            <p>
+              <strong>Players Waiting:</strong>{" "}
+              {players.length}
+            </p>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
@@ -413,9 +336,7 @@ const totalGamesPlayed =
                     </div>
 
                     <div className="text-sm text-gray-500">
-                      Games: {player.gamesPlayed} |
-W: {player.wins || 0} |
-L: {player.losses || 0}
+                      Games Played: {player.gamesPlayed}
                     </div>
                   </div>
 
@@ -448,72 +369,29 @@ L: {player.losses || 0}
                       Empty Court
                     </p>
                   ) : (
-                <div className="space-y-4">
-  <div>
-    <h3 className="font-bold text-blue-600">
-      Team A
-    </h3>
-
-    {court.players
-      .slice(0, 2)
-      .map((player) => (
-        <div
-          key={player.id}
-          className="bg-blue-100 p-2 rounded mb-1"
-        >
-          {player.name}
-        </div>
-      ))}
-  </div>
-
-  <div>
-    <h3 className="font-bold text-purple-600">
-      Team B
-    </h3>
-
-    {court.players
-      .slice(2, 4)
-      .map((player) => (
-        <div
-          key={player.id}
-          className="bg-purple-100 p-2 rounded mb-1"
-        >
-          {player.name}
-        </div>
-      ))}
-  </div>
-</div>
+                    <div className="space-y-2">
+                      {court.players.map((player) => (
+                        <div
+                          key={player.id}
+                          className="bg-green-100 p-2 rounded"
+                        >
+                          {player.name}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
-<div className="grid grid-cols-2 gap-2 mt-4">
-  <button
-    onClick={() =>
-      endGame(court.id, "A")
-    }
-    disabled={
-      court.players.length === 0 ||
-      players.length < 4
-    }
-    className="bg-blue-500 hover:bg-blue-600 text-white py-2 rounded disabled:bg-gray-400"
-  >
-    Team A Wins
-  </button>
-
-  <button
-    onClick={() =>
-      endGame(court.id, "B")
-    }
-    disabled={
-      court.players.length === 0 ||
-      players.length < 4
-    }
-    className="bg-purple-500 hover:bg-purple-600 text-white py-2 rounded disabled:bg-gray-400"
-  >
-    Team B Wins
-  </button>
-</div>
-
-
+                  <button
+                    onClick={() =>
+                      endGame(court.id)
+                    }
+                    disabled={
+                      court.players.length === 0
+                    }
+                    className="mt-4 w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white py-2 rounded"
+                  >
+                    End Game
+                  </button>
                 </div>
               ))}
             </div>
