@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 
 const STORAGE_KEYS = {
