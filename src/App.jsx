@@ -50,7 +50,6 @@ useEffect(() => {
 
    // console.log("Loaded players:", storedPlayers);Show more lines
 
-
     setPlayers(storedPlayers);
     setPlayersLoaded(true);
   }
