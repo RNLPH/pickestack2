@@ -1,7 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
-import { getPlayers, savePlayers } from "./db/playerService";
-
 
 const STORAGE_KEYS = {
   PLAYERS: "picklestack_players",
@@ -13,71 +10,30 @@ const DEFAULT_COURTS = [
   { id: 2, players: [] },
 ];
 
-
-
 export default function App() {
   const inputRef = useRef(null);
+
   const [name, setName] = useState("");
   const [error, setError] = useState("");
-
-  const [directory, setDirectory] = useState([]);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
-
-  useEffect(() => {
-  async function loadDirectory() {
-    const players =
-      await getDirectory();
-
-    setDirectory(players);
-  }
-
-  loadDirectory();
-}, []);
-
   const [selectedCourt, setSelectedCourt] =
   useState({});
 
-
-
-const [players, setPlayers] = useState([]);
-const [playersLoaded, setPlayersLoaded] =
-  useState(false);
-
-useEffect(() => {
-  async function loadPlayers() {
-    const storedPlayers =
-      await getPlayers();
-
-   // console.log("Loaded players:", storedPlayers);Show more lines
-
-
-    setPlayers(storedPlayers);
-    setPlayersLoaded(true);
-  }
-
-  loadPlayers();
-}, []);
-
+  const [players, setPlayers] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PLAYERS);
+    return saved ? JSON.parse(saved) : [];
+  });
 
   const [courts, setCourts] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.COURTS);
     return saved ? JSON.parse(saved) : DEFAULT_COURTS;
   });
 
-useEffect(() => {
-  if (!playersLoaded) return;
-
-
-  async function persistPlayers() {
-    await savePlayers(players);
-  }
-
-  persistPlayers();
-
-}, [
-  players,
-  playersLoaded,
-]);
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEYS.PLAYERS,
+      JSON.stringify(players)
+    );
+  }, [players]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -132,7 +88,7 @@ const shufflePlayers = (playerList) => {
 };
 
 
- const addPlayer = async () => {
+  const addPlayer = () => {
     const trimmedName = name.trim();
 
     if (!trimmedName) {
@@ -173,43 +129,19 @@ const shufflePlayers = (playerList) => {
       setError(`"${trimmedName}" is already checked in.`);
       return;
     }
-    const existingDirectoryPlayer =
-  directory.find(
-    (player) =>
-      player.name.toLowerCase() ===
-      trimmedName.toLowerCase()
-  );
 
-let newPlayer;
-
-if (existingDirectoryPlayer) {
-  newPlayer = {
-    ...existingDirectoryPlayer,
-    waitingSince: Date.now(),
-  };
-} else {
-  newPlayer = {
-    id: crypto.randomUUID(),
-    name: trimmedName,
-    gamesPlayed: 0,
-    wins: 0,
-    losses: 0,
-    bracket: "normal",
-    waitingSince: Date.now(),
-  };
-
-  await saveDirectoryPlayer(newPlayer);
-
-  setDirectory((prev) => [
-    ...prev,
-    newPlayer,
-  ]);
-}
-
-setPlayers((prev) => [
-  ...prev,
-  newPlayer,
-]);
+    setPlayers((prev) => [
+      ...prev,
+      {
+  id: crypto.randomUUID(),
+  name: trimmedName,
+  gamesPlayed: 0,
+  wins: 0,
+  losses: 0,
+  bracket: "normal",
+  waitingSince: Date.now(),
+},
+    ]);
 
     setName("");
     setError("");
@@ -456,46 +388,23 @@ const endGame = (courtId, winningTeam) => {
   );
 };
 
-const resetAll = () => {
-  const confirmed = window.confirm(
-    "Start a new session?"
-  );
+  const resetAll = () => {
+    const confirmed = window.confirm(
+      "Reset all courts and players?"
+    );
 
-  if (!confirmed) return;
+    if (!confirmed) return;
 
-  localStorage.removeItem(
-    STORAGE_KEYS.COURTS
-  );
+    localStorage.removeItem(STORAGE_KEYS.PLAYERS);
+    localStorage.removeItem(STORAGE_KEYS.COURTS);
 
-  setPlayers([]);
-  setCourts(DEFAULT_COURTS);
-
-  setName("");
-  setError("");
-};
+    setPlayers([]);
+    setError("");
+    setName("");
+    setCourts(DEFAULT_COURTS);
+  };
 
 const sortedPlayers = sortPlayers(players);
-
-const matchingPlayers =
-  name.trim().length > 0
-    ? directory
-        .filter((player) => {
-          const playerName =
-            player.name.toLowerCase();
-
-          const searchName =
-            name.toLowerCase();
-
-          return (
-            playerName.includes(searchName) &&
-            playerName !== searchName
-          );
-        })
-        .sort((a, b) =>
-          a.name.localeCompare(b.name)
-        )
-        .slice(0, 5)
-    : [];
 
 const activePlayers = courts.reduce(
   (count, court) => count + court.players.length,
@@ -545,158 +454,22 @@ const totalGamesPlayed =
 
         <div className="bg-white rounded-xl shadow p-4 mb-6">
           <div className="flex flex-wrap gap-2">
-
-         
-<div className="relative flex-1">
-  <input
-    ref={inputRef}
-    type="text"
-    value={name}
-    placeholder="Player Name"
-
-    onChange={(e) => {
-  setName(e.target.value);
-  setError("");
-  setHighlightedIndex(-1);
-}}
-
-   onKeyDown={(e) => {
-  if (
-    e.key === "ArrowDown"
-  ) {
-    e.preventDefault();
-
-    setHighlightedIndex((prev) =>
-      prev < matchingPlayers.length - 1
-        ? prev + 1
-        : prev
-    );
-  }
-
-  else if (
-    e.key === "ArrowUp"
-  ) {
-    e.preventDefault();
-
-    setHighlightedIndex((prev) =>
-      prev > 0
-        ? prev - 1
-        : 0
-    );
-  }
-
-  else if (
-    e.key === "Enter" &&
-    highlightedIndex >= 0
-  ) {
-    e.preventDefault();
-
-    const selected =
-      matchingPlayers[
-        highlightedIndex
-      ];
-
-    setName(selected.name);
-    setHighlightedIndex(-1);
-  }
-
-  else if (e.key === "Enter") {
-    addPlayer();
-  }
-
-  else if (e.key === "Escape") {
-    setHighlightedIndex(-1);
-  }
-}}
-
-    className="border rounded p-2 w-full"
-  />
-
-  {matchingPlayers.length > 0 &&
-    name.trim() !== "" && (
-      <div className="absolute bg-white border rounded shadow mt-1 w-full max-h-40 overflow-y-auto z-10">
-        {matchingPlayers.map(
-  (player, index) => (
-  <div
-    key={player.id}
-    className={`flex items-center justify-between px-3 py-2 ${
-  highlightedIndex === index
-    ? "bg-blue-100"
-    : "hover:bg-gray-100"
-}`}
-  >
-    <button
-      type="button"
-      onClick={() => {
-        setName(player.name);
-        setError("");
-        setHighlightedIndex(-1);
-        inputRef.current?.focus();
-      }}
-      className="flex-1 text-left"
-    >
-      {player.name}
-    </button>
-
-    <button
-
-      type="button"
-      onClick={async (e) => {
-  e.stopPropagation();
-
-  const confirmed = window.confirm(
-    `Delete ${player.name} permanently?`
-  );
-
-  if (!confirmed) return;
-
-  const isActive =
-    players.some(
-      (p) => p.id === player.id
-    ) ||
-    courts.some((court) =>
-      court.players.some(
-        (p) => p.id === player.id
-      )
-    );
-
-  if (isActive) {
-    alert(
-      "Cannot delete a player currently in the queue or on a court."
-    );
-    return;
-  }
-
-  await deleteDirectoryPlayer(
-    player.id
-  );
-
-  setDirectory((prev) =>
-    prev.filter(
-      (p) => p.id !== player.id
-    )
-  );
-
-  if (
-    name.toLowerCase() ===
-    player.name.toLowerCase()
-  ) {
-    setName("");
-  }
-}}
-
-      className="text-red-500 hover:text-red-700 font-bold px-2"
-      title="Delete saved player"
-    >
-      🗑️
-    </button>
-  </div>
-))}
-
-      </div>
-    )}
-</div>
-            
+            <input
+              ref={inputRef}
+              type="text"
+              value={name}
+              placeholder="Player Name"
+              onChange={(e) => {
+                setName(e.target.value);
+                setError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addPlayer();
+                }
+              }}
+              className="border rounded p-2 flex-1"
+            />
 
             <button
               onClick={addPlayer}
@@ -788,6 +561,7 @@ const totalGamesPlayed =
             #{index + 1} {player.name}
           </strong>
         </div>
+
         <div className="text-sm">
   W: {player.wins || 0}
   {" | "}
@@ -809,7 +583,6 @@ const totalGamesPlayed =
     ))
   )}
 </div>
-
 
 <div className="grid md:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl shadow p-4">
