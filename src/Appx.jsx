@@ -3,6 +3,7 @@ import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/
 import { getPlayers, savePlayers } from "./db/playerService";
 import { saveMatch, getMatches, deleteMatchesBySession, } from "./db/matchService";
 
+const APP_VERSION = "1.0.0";
 
 const STORAGE_KEYS = {
   PLAYERS: "picklestack_players",
@@ -13,6 +14,7 @@ const DEFAULT_COURTS = [
   { id: 1, players: [] },
   { id: 2, players: [] },
 ];
+
 
 
 
@@ -646,7 +648,7 @@ const totalGamesPlayed =
          {/* ===== HEADER END ===== */}
 
       {/* TAB NAVIGATION START */}
-        <div className="flex justify-center gap-3 mb-6">
+        <div className="flex justify-center gap-3 mb-6 flex-wrap">
 
       {/* ==DASHBOARD ==*/}
 
@@ -690,10 +692,32 @@ const totalGamesPlayed =
   >
     📜 History
   </button>
+
+  <button
+  onClick={() =>
+    alert(
+`🏓 PickleStack v${APP_VERSION}
+
+Features:
+• Player Queue Management
+• Court Management
+• Match History
+• Player Standings
+• Offline Support
+• Installable PWA
+
+Built for Pickleball Session Management`
+    )
+  }
+  className="px-4 py-2 rounded bg-white"
+>
+  ℹ️ About
+</button>
+
 </div>
 
         <div className="bg-white rounded-xl shadow p-4 mb-6">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 justify-center">
 
          
 <div className="relative flex-1">
@@ -849,35 +873,35 @@ const totalGamesPlayed =
 
             <button
               onClick={addPlayer}
-              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded w-full sm:w-auto"
             >
               Add Player
             </button>
 
             <button
   onClick={assignPlayers}
-  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full sm:w-auto"
 >
   Start Game
 </button>
 
             <button
               onClick={addCourt}
-              className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
+              className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded w-full sm:w-auto"
             >
               + Court
             </button>
 
             <button
               onClick={removeCourt}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded w-full sm:w-auto"
             >
               - Court
             </button>
 
            <button
   onClick={resetAll}
-  className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded"
+  className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded w-full sm:w-auto"
 >
   New Session
 </button>
@@ -965,7 +989,9 @@ const totalGamesPlayed =
 </h2>
 
   {matches.length === 0 ? (
-    <p>No matches recorded yet.</p>
+    <p className="text-gray-500">
+  No matches recorded yet 🎾
+</p>
   ) : (
     matches.slice(0, 10)
       .map((match, index) => (
@@ -1036,7 +1062,9 @@ const totalGamesPlayed =
 
 
             {sortedPlayers.length === 0 ? (
-              <p>No players waiting</p>
+              <p className="text-gray-500 text-center">
+  No players waiting 🏓
+</p>
             ) : (
               sortedPlayers.map((player, index) => (
                 <div
@@ -1245,13 +1273,14 @@ const totalGamesPlayed =
     Team B Wins
   </button>
 </div>
-
-
                 </div>
               ))}
             </div>
           </div>
         </div>
+        <div className="text-center text-xs text-gray-500 py-6">
+  🏓 PickleStack v{APP_VERSION}
+</div>
       </div>
     </div>
   );
