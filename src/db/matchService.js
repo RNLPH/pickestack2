@@ -25,3 +25,7 @@ export async function deleteMatchesBySession(
     await db.matches.delete(match.id);
   }
 }
+
+export async function clearAllMatches() {
+  await db.matches.clear();
+}

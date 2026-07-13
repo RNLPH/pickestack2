@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
 import { getPlayers, savePlayers } from "./db/playerService";
-import { saveMatch, getMatches, deleteMatchesBySession, } from "./db/matchService";
+import { saveMatch, getMatches, deleteMatchesBySession, clearAllMatches, } from "./db/matchService";
 
 const DEFAULT_COURTS = [
   { id: 1, players: [] },
@@ -230,9 +230,12 @@ const formatMatchDuration = (
     return "Unknown";
   }
 
-  const durationMinutes = Math.round(
+ const durationMinutes = Math.max(
+  1,
+  Math.round(
     (end - start) / 60000
-  );
+  )
+);
 
   const startTime =
     new Date(start).toLocaleTimeString(
@@ -597,6 +600,26 @@ setMatches((prev) => [
 };
     }
   );
+const updatedDirectory = directory.map(
+  (directoryPlayer) => {
+
+    const updatedPlayer =
+      returningPlayers.find(
+        (player) =>
+          player.id === directoryPlayer.id
+      );
+
+    return updatedPlayer
+      ? updatedPlayer
+      : directoryPlayer;
+  }
+);
+
+setDirectory(updatedDirectory);
+
+for (const player of updatedDirectory) {
+  await saveDirectoryPlayer(player);
+}
 
   setPlayers((prev) =>
     sortPlayers([
@@ -621,7 +644,7 @@ setMatches((prev) => [
 // ===== SESSION ACTIONS =====
 const resetAll = () => {
   const confirmed = window.confirm(
-    "Start a new session?"
+    "Clear Dashboard?"
   );
 
   if (!confirmed) return;
@@ -632,7 +655,6 @@ const resetAll = () => {
 
   setPlayers([]);
   setCourts(DEFAULT_COURTS);
-  setSessionId((prev) => prev + 1);
   setName("");
   setError("");
 };
@@ -658,6 +680,65 @@ const deleteSession = async (
     )
   );
 };
+
+// CLEAR HISTORY
+
+const clearHistory = async () => {
+
+  const confirmed = window.confirm(
+    "Delete ALL match history and reset sessions?"
+  );
+
+  if (!confirmed) return;
+
+  await clearAllMatches();
+
+  setMatches([]);
+
+  setSessionId(1);
+
+  localStorage.setItem(
+    STORAGE_KEYS.SESSION,
+    "1"
+  );
+
+  alert(
+    "All match history cleared."
+  );
+};
+
+// END OF CLEAR HISTORY
+
+// START OF CLEAR STANDING
+const clearStandings = async () => {
+
+  const confirmed = window.confirm(
+    "Reset ALL player statistics?"
+  );
+
+  if (!confirmed) return;
+
+  const resetPlayers =
+    directory.map((player) => ({
+      ...player,
+      gamesPlayed: 0,
+      wins: 0,
+      losses: 0,
+      bracket: "normal",
+    }));
+
+  for (const player of resetPlayers) {
+    await saveDirectoryPlayer(player);
+  }
+
+  setDirectory(resetPlayers);
+
+  alert(
+    "All standings have been reset."
+  );
+};
+
+// END OF CLEAR STANDINGS
 
 // ===== DERIVED DATA =====
 
@@ -700,29 +781,32 @@ const totalGamesPlayed =
 
     // == STANDINGS 
 
-    const standings = [
-  ...players,
-  ...courts.flatMap((c) => c.players),
-].sort((a, b) => {
+const standings = directory
+  .filter(
+    (player) =>
+      (player.gamesPlayed || 0) > 0
+  )
+  .sort((a, b) => {
 
-  const winRateA =
-    (a.wins || 0) + (a.losses || 0) > 0
-      ? (a.wins || 0) /
-        ((a.wins || 0) + (a.losses || 0))
-      : 0;
+    const winRateA =
+      (a.wins || 0) + (a.losses || 0) > 0
+        ? (a.wins || 0) /
+          ((a.wins || 0) + (a.losses || 0))
+        : 0;
 
-  const winRateB =
-    (b.wins || 0) + (b.losses || 0) > 0
-      ? (b.wins || 0) /
-        ((b.wins || 0) + (b.losses || 0))
-      : 0;
+    const winRateB =
+      (b.wins || 0) + (b.losses || 0) > 0
+        ? (b.wins || 0) /
+          ((b.wins || 0) + (b.losses || 0))
+        : 0;
 
-  if (winRateB !== winRateA) {
-    return winRateB - winRateA;
-  }
+    if (winRateB !== winRateA) {
+      return winRateB - winRateA;
+    }
 
-  return (b.wins || 0) - (a.wins || 0);
-});
+    return (b.wins || 0) - (a.wins || 0);
+  });
+
 
 const getSessionStats = (
   playerName
@@ -765,6 +849,130 @@ const getSessionStats = (
           )
         : 0,
   };
+};
+
+const getSessionSummary = (
+  sessionMatches
+) => {
+  const playerStats = {};
+
+  sessionMatches.forEach((match) => {
+
+    [...match.teamA, ...match.teamB]
+      .forEach((player) => {
+
+        if (!playerStats[player]) {
+          playerStats[player] = {
+            wins: 0,
+            losses: 0,
+          };
+        }
+
+        const won =
+          (match.winner === "A" &&
+            match.teamA.includes(player))
+          ||
+          (match.winner === "B" &&
+            match.teamB.includes(player));
+
+        if (won) {
+          playerStats[player].wins++;
+        } else {
+          playerStats[player].losses++;
+        }
+      });
+  });
+
+  const players =
+    Object.keys(playerStats).length;
+
+  const matches =
+    sessionMatches.length;
+
+  const durations =
+    sessionMatches
+      .filter(
+        (m) =>
+          m.startedAt &&
+          m.endedAt
+      )
+      .map(
+        (m) =>
+          (m.endedAt -
+            m.startedAt) /
+          60000
+      );
+
+ const avgDuration =
+  durations.length > 0
+    ? Math.max(
+        1,
+        Math.round(
+          durations.reduce(
+            (a, b) => a + b,
+            0
+          ) / durations.length
+        )
+      )
+    : 0;
+
+const longestMatch =
+  durations.length > 0
+    ? Math.max(
+        1,
+        Math.round(
+          Math.max(...durations)
+        )
+      )
+    : 0;
+
+const leaderboard =
+  Object.entries(playerStats)
+    .map(([name, stats]) => ({
+      name,
+      ...stats,
+      winRate:
+        stats.wins + stats.losses > 0
+          ? stats.wins /
+            (stats.wins + stats.losses)
+          : 0,
+    }))
+    .sort((a, b) => {
+
+      if (b.winRate !== a.winRate) {
+        return b.winRate - a.winRate;
+      }
+
+      if (b.wins !== a.wins) {
+        return b.wins - a.wins;
+      }
+
+      return a.losses - b.losses;
+    });
+
+const bestRecord =
+  leaderboard[0];
+
+const topRecordPlayers =
+  leaderboard.filter(
+    (player) =>
+      player.winRate ===
+        bestRecord?.winRate &&
+      player.wins ===
+        bestRecord?.wins &&
+      player.losses ===
+        bestRecord?.losses
+  );
+
+return {
+  players,
+  matches,
+  avgDuration,
+  longestMatch,
+  bestRecord,
+  topRecordPlayers,
+};
+
 };
 
 const groupedMatches = matches.reduce(
@@ -1026,11 +1234,11 @@ const groupedMatches = matches.reduce(
               - Court
             </button>
 
-           <button
+<button
   onClick={resetAll}
   className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded"
 >
-  New Session
+  🧹 Reset Dashboard
 </button>
           </div>
 
@@ -1071,9 +1279,20 @@ const groupedMatches = matches.reduce(
   
   {activeTab === "standings" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
 
-  <h2 className="text-2xl font-bold mb-4">
+<div className="flex justify-between items-center mb-4">
+
+  <h2 className="text-2xl font-bold">
     🏆 Standings
   </h2>
+
+  <button
+    onClick={clearStandings}
+    className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded text-sm"
+  >
+    🧹 Clear Standings
+  </button>
+
+</div>
 
   {standings.length === 0 ? (
     <p>No players available</p>
@@ -1142,9 +1361,20 @@ standings.map((player, index) => {
 {/* MATCH HISTORY VIEW START */}
 {activeTab === "history" && (
   <div className="bg-white rounded-xl shadow p-4 mb-6">
-    <h2 className="text-2xl font-bold mb-6 text-center">
-  📜 Match History ({matches.length})
-</h2>
+    <div className="flex justify-between items-center mb-6">
+
+  <h2 className="text-2xl font-bold">
+    📜 Match History ({matches.length})
+  </h2>
+
+  <button
+    onClick={clearHistory}
+    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm"
+  >
+    🗑️ Clear All History
+  </button>
+
+</div>
 
     {matches.length === 0 ? (
       <p>No matches recorded yet.</p>
@@ -1154,21 +1384,25 @@ standings.map((player, index) => {
     ([a], [b]) => Number(b) - Number(a)
   )
   .map(
-        ([session, sessionMatches]) => (
+  ([session, sessionMatches]) => {
+
+    const summary =
+      getSessionSummary(
+        sessionMatches
+      );
+
+    return (
         <div
   key={session}
   className="mb-8 border rounded-lg p-4 bg-white shadow-sm"
 >
 
 <div className="flex justify-between items-center mb-3">
-  <span className="text-xl">
-    📂
-  </span>
- 
-<h3 className="text-xl font-bold text-blue-600">
-  Session {session}
-</h3>
-
+<div>
+  <h3 className="text-xl font-bold text-blue-600">
+    📂 Session {session}
+  </h3>
+</div>
   <button
     onClick={() =>
       deleteSession(Number(session))
@@ -1187,6 +1421,87 @@ standings.map((player, index) => {
     sessionMatches[0]?.date
   )}
 </p>
+<div className="bg-slate-100 rounded-lg p-3 mb-4">
+
+  <div className="grid grid-cols-2 gap-2 text-sm">
+
+    <div>
+      👥 Players:
+      {" "}
+      {summary.players}
+    </div>
+
+    <div>
+      🏓 Matches:
+      {" "}
+      {summary.matches}
+    </div>
+
+    <div>
+      ⏱ Avg Match:
+      {" "}
+      {summary.avgDuration} min
+    </div>
+
+    <div>
+      🔥 Longest:
+      {" "}
+      {summary.longestMatch} min
+    </div>
+
+  </div>
+
+{summary.bestRecord && (
+  <div className="mt-4 text-center">
+
+    <div className="text-lg font-bold text-yellow-600">
+      🏆 Best Session Record
+    </div>
+
+    <div className="mt-2 text-sm">
+      Record:
+      {" "}
+      <span className="font-semibold">
+        {summary.bestRecord.wins}W-
+        {summary.bestRecord.losses}L
+      </span>
+    </div>
+
+    <div className="text-sm">
+      Win Rate:
+      {" "}
+      <span className="font-semibold">
+        {Math.round(
+          summary.bestRecord.winRate * 100
+        )}
+        %
+      </span>
+    </div>
+
+    <div className="mt-3 text-sm font-semibold text-gray-700">
+      Players
+    </div>
+
+    <div className="space-y-1 mt-1">
+
+      {summary.topRecordPlayers.map(
+        (player) => (
+          <div
+            key={player.name}
+            className="text-sm"
+          >
+            • {player.name}
+          </div>
+        )
+      )}
+
+    </div>
+
+  </div>
+)}
+
+</div>
+
 
             {sessionMatches.map(
               (match, index) => (
@@ -1205,27 +1520,21 @@ standings.map((player, index) => {
     </span>
   </div>
 
-  <div className="space-y-1">
-    <div>
-      🔵 <strong>Team A</strong>
-    </div>
+<div className="space-y-2">
 
-    <div>
-      {match.teamA.join(" & ")}
-    </div>
-
-    <div>
-      🟣 <strong>Team B</strong>
-    </div>
-
-    <div>
-      {match.teamB.join(" & ")}
-    </div>
-
-    <div className="mt-2 text-green-600 font-semibold">
-      🏆 Winner: Team {match.winner}
-    </div>
+  <div>
+    🔵 {match.teamA.join(" & ")}
   </div>
+
+  <div>
+    🟣 {match.teamB.join(" & ")}
+  </div>
+
+  <div className="text-green-600 font-semibold">
+    🏆 Winner: Team {match.winner}
+  </div>
+
+</div>
 
 <div className="text-xs text-gray-400 mt-2">
   🕒 {formatMatchDuration(
@@ -1242,8 +1551,8 @@ standings.map((player, index) => {
               )
             )}
           </div>
-        )
-      )
+        );
+      })
     )}
   </div>
 )}
