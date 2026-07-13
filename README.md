@@ -205,6 +205,16 @@ Resets:
 
 ***
 
+📱 Install on Phone
+
+Android:
+Chrome → Install App
+
+iPhone:
+Safari → Share → Add to Home Screen
+
+
+
 ## 📦 Installation
 
 ```bash

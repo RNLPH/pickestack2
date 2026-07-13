@@ -567,6 +567,7 @@ const resetAll = () => {
   setError("");
 };
 
+
 // ===== DERIVED DATA =====
 
 const sortedPlayers = sortPlayers(players);
