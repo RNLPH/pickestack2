@@ -3,18 +3,16 @@ import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/
 import { getPlayers, savePlayers } from "./db/playerService";
 import { saveMatch, getMatches, } from "./db/matchService";
 
-
-const STORAGE_KEYS = {
-  PLAYERS: "picklestack_players",
-  COURTS: "picklestack_courts",
-};
-
 const DEFAULT_COURTS = [
   { id: 1, players: [] },
   { id: 2, players: [] },
 ];
 
-
+const STORAGE_KEYS = {
+  PLAYERS: "picklestack_players",
+  COURTS: "picklestack_courts",
+  SESSION: "picklestack_session",
+};
 
 export default function App() {
 
@@ -26,6 +24,16 @@ export default function App() {
   const [error, setError] = useState("");
   const [matches, setMatches] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [sessionId, setSessionId] = useState(() => { return Number( localStorage.getItem(STORAGE_KEYS.SESSION) || 1);});
+
+
+// == SAVE SESSIONS ==
+useEffect(() => {
+  localStorage.setItem(
+    STORAGE_KEYS.SESSION,
+    sessionId
+  );
+}, [sessionId]);
 
   // ===== LOAD MATCHES =====
   useEffect(() => {
@@ -485,6 +493,7 @@ const endGame = async (
   if (!court) return;
 
   const matchRecord = {
+  sessionId,
   date: Date.now(),
   courtId,
 
@@ -562,7 +571,7 @@ const resetAll = () => {
 
   setPlayers([]);
   setCourts(DEFAULT_COURTS);
-
+  setSessionId((prev) => prev + 1);
   setName("");
   setError("");
 };
@@ -606,6 +615,7 @@ const totalGamesPlayed =
       0
     );  
 
+    // == STANDINGS 
     const standings = [
   ...players,
   ...courts.flatMap((c) => c.players),
@@ -629,6 +639,21 @@ const totalGamesPlayed =
 
   return (b.wins || 0) - (a.wins || 0);
 });
+
+const groupedMatches = matches.reduce(
+  (groups, match) => {
+    const key = match.sessionId || 1;
+
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+
+    groups[key].push(match);
+
+    return groups;
+  },
+  {}
+);
 
   return (
 
@@ -963,74 +988,85 @@ const totalGamesPlayed =
 {/* STANDINGS VIEW END */}
 
 {/* MATCH HISTORY VIEW START */}
-{activeTab === "history" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
- <h2 className="text-2xl font-bold mb-4">
-  📜 Match History ({matches.length})
-</h2>
 
-  {matches.length === 0 ? (
-    <p>No matches recorded yet.</p>
-  ) : (
-    matches.slice(0, 10)
-      .map((match, index) => (
-  <div
-    key={index}
-    className="border-b py-4"
-  >
-    <div className="text-sm text-gray-400 mb-2">
-  Match #{matches.length - index}
-</div>
+{/* MATCH HISTORY VIEW START */}
+{activeTab === "history" && (
+  <div className="bg-white rounded-xl shadow p-4 mb-6">
+    <h2 className="text-2xl font-bold mb-4">
+      📜 Match History ({matches.length})
+    </h2>
 
-        <div className="mb-2">
-  <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">
-    Court {match.courtId}
-  </span>
-</div>
-
-<div className="space-y-1">
-  <div>
-    🔵 <strong>Team A</strong>
-  </div>
-
-  <div
-  className={`ml-6 ${
-    match.winner === "A"
-      ? "font-bold text-green-600"
-      : "text-gray-700"
-  }`}
+    {matches.length === 0 ? (
+      <p>No matches recorded yet.</p>
+    ) : (
+      Object.entries(groupedMatches)
+  .sort(
+    ([a], [b]) => Number(b) - Number(a)
+  )
+  .map(
+        ([session, sessionMatches]) => (
+         <div
+  key={session}
+  className="mb-8"
 >
-  {match.teamA.join(" & ")}
-</div>
+           <h3 className="text-xl font-bold text-blue-600 mb-4 border-b pb-2">
+  📂 Session {session}
+</h3>
 
-  <div>
-    🟣 <strong>Team B</strong>
-  </div>
+            {sessionMatches.map(
+              (match, index) => (
 
- <div
-  className={`ml-6 ${
-    match.winner === "B"
-      ? "font-bold text-green-600"
-      : "text-gray-700"
-  }`}
+              <div
+  key={index}
+  className="border-b py-4"
 >
-  {match.teamB.join(" & ")}
-</div>
+  <div className="text-sm text-gray-400 mb-2">
+    Match #{index + 1}
+  </div>
 
-  <div className="mt-2 text-green-600 font-semibold">
-    🏆 Winner: Team {match.winner}
+  <div className="mb-2">
+    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold">
+      Court {match.courtId}
+    </span>
+  </div>
+
+  <div className="space-y-1">
+    <div>
+      🔵 <strong>Team A</strong>
+    </div>
+
+    <div>
+      {match.teamA.join(" & ")}
+    </div>
+
+    <div>
+      🟣 <strong>Team B</strong>
+    </div>
+
+    <div>
+      {match.teamB.join(" & ")}
+    </div>
+
+    <div className="mt-2 text-green-600 font-semibold">
+      🏆 Winner: Team {match.winner}
+    </div>
+  </div>
+
+  <div className="text-xs text-gray-400 mt-2">
+    🕒 {getRelativeTime(match.date)}
   </div>
 </div>
 
 
-<div className="text-xs text-gray-400 mt-2">
-  🕒 {getRelativeTime(match.date)}
-</div>
-     
-        </div>
-      ))
-  )}
-</div>
+              )
+            )}
+          </div>
+        )
+      )
+    )}
+  </div>
 )}
+
 {/* MATCH HISTORY VIEW END */}
 
 {/* DASHBOARD VIEW START */}
