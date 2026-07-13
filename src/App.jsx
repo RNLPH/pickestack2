@@ -222,6 +222,39 @@ const formatSessionDate = (
     });
 };
 
+const formatMatchDuration = (
+  start,
+  end
+) => {
+  if (!start || !end) {
+    return "Unknown";
+  }
+
+  const durationMinutes = Math.round(
+    (end - start) / 60000
+  );
+
+  const startTime =
+    new Date(start).toLocaleTimeString(
+      "en-US",
+      {
+        hour: "numeric",
+        minute: "2-digit",
+      }
+    );
+
+  const endTime =
+    new Date(end).toLocaleTimeString(
+      "en-US",
+      {
+        hour: "numeric",
+        minute: "2-digit",
+      }
+    );
+
+  return `${startTime} - ${endTime} (${durationMinutes} min)`;
+};
+
 // ===== PLAYER ACTIONS =====
  const addPlayer = async () => {
     const trimmedName = name.trim();
@@ -485,6 +518,7 @@ const assignPlayers = () => {
         ? {
             ...court,
             players: randomizedTeams,
+            startedAt: Date.now(),
           }
         : court
     )
@@ -512,6 +546,10 @@ const endGame = async (
 
 const matchRecord = {
   sessionId,
+
+  startedAt: court.startedAt,
+
+  endedAt: Date.now(),
 
   sessionTimestamp:
     new Date().toISOString(),
@@ -573,6 +611,7 @@ setMatches((prev) => [
         ? {
             ...court,
             players: [],
+            startedAt: null,
           }
         : court
     )
@@ -660,6 +699,7 @@ const totalGamesPlayed =
     );  
 
     // == STANDINGS 
+
     const standings = [
   ...players,
   ...courts.flatMap((c) => c.players),
@@ -683,6 +723,49 @@ const totalGamesPlayed =
 
   return (b.wins || 0) - (a.wins || 0);
 });
+
+const getSessionStats = (
+  playerName
+) => {
+  const sessionMatches = matches.filter(
+    (match) =>
+      match.sessionId === sessionId &&
+      (
+        match.teamA.includes(playerName) ||
+        match.teamB.includes(playerName)
+      )
+  );
+
+  const wins = sessionMatches.filter(
+    (match) =>
+      (
+        match.winner === "A" &&
+        match.teamA.includes(playerName)
+      ) ||
+      (
+        match.winner === "B" &&
+        match.teamB.includes(playerName)
+      )
+  ).length;
+
+  const losses =
+    sessionMatches.length - wins;
+
+  return {
+    gamesPlayed:
+      sessionMatches.length,
+    wins,
+    losses,
+    winRate:
+      sessionMatches.length > 0
+        ? Math.round(
+            (wins /
+              sessionMatches.length) *
+              100
+          )
+        : 0,
+  };
+};
 
 const groupedMatches = matches.reduce(
   (groups, match) => {
@@ -995,38 +1078,60 @@ const groupedMatches = matches.reduce(
   {standings.length === 0 ? (
     <p>No players available</p>
   ) : (
-    standings.map((player, index) => (
-      <div
-        key={player.id}
-        className="flex justify-between border-b py-2"
-      >
-        <div>
-          <strong>
-            {index === 0 && "🥇 "}
-            {index === 1 && "🥈 "}
-            {index === 2 && "🥉 "}
-            #{index + 1} {player.name}
-          </strong>
-        </div>
-        <div className="text-sm">
-  W: {player.wins || 0}
-  {" | "}
-  L: {player.losses || 0}
-  {" | "}
-  WR: {
-    ((player.wins || 0) +
-      (player.losses || 0))
-      ? Math.round(
-          ((player.wins || 0) /
-            ((player.wins || 0) +
-             (player.losses || 0))) *
-          100
-        )
-      : 0
-  }%
-</div>
+
+standings.map((player, index) => {
+
+  const sessionStats =
+    getSessionStats(player.name);
+
+  return (
+    <div
+      key={player.id}
+      className="flex justify-between border-b py-2"
+    >
+      <div>
+        <strong>
+          {index === 0 && "🥇 "}
+          {index === 1 && "🥈 "}
+          {index === 2 && "🥉 "}
+          #{index + 1} {player.name}
+        </strong>
       </div>
-    ))
+
+      <div className="text-sm text-right">
+
+        <div className="font-semibold text-blue-600">
+          Today
+        </div>
+
+        <div>
+          GP: {sessionStats.gamesPlayed}
+          {" | "}
+          W: {sessionStats.wins}
+          {" | "}
+          L: {sessionStats.losses}
+          {" | "}
+          WR: {sessionStats.winRate}%
+        </div>
+
+        <div className="text-xs text-gray-500 mt-1">
+          All-Time
+        </div>
+
+        <div className="text-xs text-gray-500">
+          GP: {player.gamesPlayed || 0}
+          {" | "}
+          W: {player.wins || 0}
+          {" | "}
+          L: {player.losses || 0}
+        </div>
+
+      </div>
+
+    </div>
+  );
+})
+
   )}
 </div>
 )}
@@ -1122,8 +1227,14 @@ const groupedMatches = matches.reduce(
     </div>
   </div>
 
-  <div className="text-xs text-gray-400 mt-2">
-    🕒 {getRelativeTime(match.date)}
+<div className="text-xs text-gray-400 mt-2">
+  🕒 {formatMatchDuration(
+    match.startedAt,
+    match.endedAt
+  )}
+</div>
+<div className="text-xs text-gray-400">
+  ⌛ {getRelativeTime(match.endedAt)}
   </div>
 </div>
 
