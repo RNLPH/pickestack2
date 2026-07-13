@@ -644,10 +644,10 @@ const totalGamesPlayed =
         </h1>
          {/* ===== HEADER END ===== */}
 
-{/* TAB NAVIGATION START */}
+      {/* TAB NAVIGATION START */}
         <div className="flex justify-center gap-3 mb-6">
 
-{/* ==DASHBOARD ==*/}
+      {/* ==DASHBOARD ==*/}
 
   <button
     onClick={() =>
@@ -915,9 +915,7 @@ const totalGamesPlayed =
 </div>
         </div>
 
-{/* STANDINGS VIEW START */}
-  
-  {activeTab === "standings" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
+        <div className="bg-white rounded-xl shadow p-4 mb-6">
   <h2 className="text-2xl font-bold mb-4">
     🏆 Standings
   </h2>
@@ -959,11 +957,8 @@ const totalGamesPlayed =
     ))
   )}
 </div>
-)}
-{/* STANDINGS VIEW END */}
 
-{/* MATCH HISTORY VIEW START */}
-{activeTab === "history" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
+<div className="bg-white rounded-xl shadow p-4 mb-6">
  <h2 className="text-2xl font-bold mb-4">
   📜 Match History ({matches.length})
 </h2>
@@ -1030,16 +1025,14 @@ const totalGamesPlayed =
       ))
   )}
 </div>
-)}
-{/* MATCH HISTORY VIEW END */}
 
-{/* DASHBOARD VIEW START */}
-
-{activeTab === "dashboard" && (<div className="grid md:grid-cols-3 gap-6">
+<div className="grid md:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl shadow p-4">
             <h2 className="text-2xl font-bold mb-4">
               Waiting Queue
             </h2>
+
+
 
             {sortedPlayers.length === 0 ? (
               <p>No players waiting</p>
@@ -1258,8 +1251,7 @@ const totalGamesPlayed =
             </div>
           </div>
         </div>
-        )}
-      </div> 
+      </div>
     </div>
   );
 }

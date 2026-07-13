@@ -7,4 +7,5 @@ export const db = new Dexie(
 db.version(2).stores({
   players: "id,name",
   directory: "id,name",
+  matches: "++id,date",
 });
