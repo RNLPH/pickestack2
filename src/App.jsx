@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
 import { getPlayers, savePlayers } from "./db/playerService";
-import { saveMatch, getMatches, } from "./db/matchService";
+import { saveMatch, getMatches, deleteMatchesBySession, } from "./db/matchService";
 
 const DEFAULT_COURTS = [
   { id: 1, players: [] },
@@ -9,7 +9,6 @@ const DEFAULT_COURTS = [
 ];
 
 const STORAGE_KEYS = {
-  PLAYERS: "picklestack_players",
   COURTS: "picklestack_courts",
   SESSION: "picklestack_session",
 };
@@ -24,8 +23,14 @@ export default function App() {
   const [error, setError] = useState("");
   const [matches, setMatches] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [sessionId, setSessionId] = useState(() => { return Number( localStorage.getItem(STORAGE_KEYS.SESSION) || 1);});
 
+const [sessionId, setSessionId] = useState(() => {
+  return Number(
+    localStorage.getItem(
+      STORAGE_KEYS.SESSION
+    ) || 1
+  );
+});
 
 // == SAVE SESSIONS ==
 useEffect(() => {
@@ -202,6 +207,19 @@ const getRelativeTime = (timestamp) => {
   return `${days} day${
     days !== 1 ? "s" : ""
   } ago`;
+};
+
+const formatSessionDate = (
+  timestamp
+) => {
+  return new Date(timestamp)
+    .toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
 };
 
 // ===== PLAYER ACTIONS =====
@@ -492,8 +510,12 @@ const endGame = async (
 
   if (!court) return;
 
-  const matchRecord = {
+const matchRecord = {
   sessionId,
+
+  sessionTimestamp:
+    new Date().toISOString(),
+
   date: Date.now(),
   courtId,
 
@@ -576,6 +598,28 @@ const resetAll = () => {
   setError("");
 };
 
+const deleteSession = async (
+  sessionToDelete
+) => {
+  const confirmed = window.confirm(
+    `Delete Session ${sessionToDelete}?`
+  );
+
+  if (!confirmed) return;
+
+  await deleteMatchesBySession(
+    sessionToDelete
+  );
+
+  setMatches((prev) =>
+    prev.filter(
+      (match) =>
+        match.sessionId !==
+        sessionToDelete
+    )
+  );
+};
+
 // ===== DERIVED DATA =====
 
 const sortedPlayers = sortPlayers(players);
@@ -642,8 +686,8 @@ const totalGamesPlayed =
 
 const groupedMatches = matches.reduce(
   (groups, match) => {
-    const key = match.sessionId || 1;
-
+    const key =
+      match.sessionId || 1;
     if (!groups[key]) {
       groups[key] = [];
     }
@@ -716,7 +760,7 @@ const groupedMatches = matches.reduce(
   </button>
 </div>
 
-        <div className="bg-white rounded-xl shadow p-4 mb-6">
+        {activeTab === "dashboard" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
           <div className="flex flex-wrap gap-2">
 
          
@@ -939,10 +983,11 @@ const groupedMatches = matches.reduce(
   </p>
 </div>
         </div>
-
+        )}
 {/* STANDINGS VIEW START */}
   
   {activeTab === "standings" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
+
   <h2 className="text-2xl font-bold mb-4">
     🏆 Standings
   </h2>
@@ -992,9 +1037,9 @@ const groupedMatches = matches.reduce(
 {/* MATCH HISTORY VIEW START */}
 {activeTab === "history" && (
   <div className="bg-white rounded-xl shadow p-4 mb-6">
-    <h2 className="text-2xl font-bold mb-4">
-      📜 Match History ({matches.length})
-    </h2>
+    <h2 className="text-2xl font-bold mb-6 text-center">
+  📜 Match History ({matches.length})
+</h2>
 
     {matches.length === 0 ? (
       <p>No matches recorded yet.</p>
@@ -1005,13 +1050,38 @@ const groupedMatches = matches.reduce(
   )
   .map(
         ([session, sessionMatches]) => (
-         <div
+        <div
   key={session}
-  className="mb-8"
+  className="mb-8 border rounded-lg p-4 bg-white shadow-sm"
 >
-           <h3 className="text-xl font-bold text-blue-600 mb-4 border-b pb-2">
-  📂 Session {session}
+
+<div className="flex justify-between items-center mb-3">
+  <span className="text-xl">
+    📂
+  </span>
+ 
+<h3 className="text-xl font-bold text-blue-600">
+  Session {session}
 </h3>
+
+  <button
+    onClick={() =>
+      deleteSession(Number(session))
+    }
+    className="bg-red-100 text-red-600 hover:bg-red-200 px-2 py-1 rounded text-xs"
+  >
+    Delete
+  </button>
+</div>
+
+
+<p className="text-sm text-gray-500 mb-4">
+  🗓️{" "}
+  {formatSessionDate(
+    sessionMatches[0]?.sessionTimestamp ||
+    sessionMatches[0]?.date
+  )}
+</p>
 
             {sessionMatches.map(
               (match, index) => (

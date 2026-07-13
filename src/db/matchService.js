@@ -7,3 +7,21 @@ export async function saveMatch(match) {
 export async function getMatches() {
   return await db.matches.toArray();
 }
+
+export async function deleteMatchesBySession(
+  sessionId
+) {
+  const matches =
+    await db.matches.toArray();
+
+  const sessionMatches =
+    matches.filter(
+      (match) =>
+        (match.sessionId || 1) ===
+        sessionId
+    );
+
+  for (const match of sessionMatches) {
+    await db.matches.delete(match.id);
+  }
+}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
 import { getPlayers, savePlayers } from "./db/playerService";
-import { saveMatch, getMatches, } from "./db/matchService";
+import { saveMatch, getMatches, deleteMatchesBySession, } from "./db/matchService";
 
 
 const STORAGE_KEYS = {

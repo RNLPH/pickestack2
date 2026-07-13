@@ -4,8 +4,8 @@ export const db = new Dexie(
   "PickleStackDB"
 );
 
-db.version(2).stores({
+db.version(3).stores({
   players: "id,name",
   directory: "id,name",
-  matches: "++id,date",
+  matches: "++id,date,sessionId",
 });
