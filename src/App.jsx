@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
 import { getPlayers, savePlayers } from "./db/playerService";
 import { saveMatch, getMatches, deleteMatchesBySession, clearAllMatches, } from "./db/matchService";
+import { getAttendance, saveAttendance, clearAttendance, deleteAttendanceBySession, } from "./db/attendanceService";
 
 const DEFAULT_COURTS = [
   { id: 1, players: [] },
@@ -22,7 +23,11 @@ export default function App() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [matches, setMatches] = useState([]);
+  const [attendance, setAttendance] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [, forceUpdate] = useState(0);
+   const [directory, setDirectory] = useState([]);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
 const [sessionId, setSessionId] = useState(() => {
   return Number(
@@ -33,12 +38,21 @@ const [sessionId, setSessionId] = useState(() => {
 });
 
 // == SAVE SESSIONS ==
+
 useEffect(() => {
   localStorage.setItem(
     STORAGE_KEYS.SESSION,
     sessionId
   );
 }, [sessionId]);
+
+useEffect(() => {
+  const timer = setInterval(() => {
+    forceUpdate((prev) => prev + 1);
+  }, 60000);
+
+  return () => clearInterval(timer);
+}, []);
 
   // ===== LOAD MATCHES =====
   useEffect(() => {
@@ -52,8 +66,17 @@ useEffect(() => {
   loadMatches();
 }, []);
 
-  const [directory, setDirectory] = useState([]);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+//LOAD ATTENDANCE
+  useEffect(() => {
+  async function loadAttendance() {
+    const records =
+      await getAttendance();
+
+    setAttendance(records);
+  }
+
+  loadAttendance();
+}, []);
 
   // ===== LOAD DIRECTORY =====
   useEffect(() => {
@@ -258,6 +281,68 @@ const formatMatchDuration = (
   return `${startTime} - ${endTime} (${durationMinutes} min)`;
 };
 
+const getCourtDuration = (startedAt) => {
+  if (!startedAt) return 0;
+
+  const elapsed =
+  Math.floor(
+    (Date.now() - startedAt) / 1000
+  );
+
+const minutes =
+  Math.floor(elapsed / 60);
+
+const seconds =
+  elapsed % 60;
+
+return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
+const getCourtMinutes = (startedAt) => {
+  if (!startedAt) return 0;
+
+  return Math.floor(
+    (Date.now() - startedAt) / 60000
+  );
+};
+
+const getAttendanceCount = (
+  playerId
+) => {
+  return attendance.filter(
+    (record) =>
+      record.playerId === playerId
+  ).length;
+};
+
+//clear attendance records
+
+const clearAttendanceRecords = async () => {
+
+  const confirmed = window.confirm(
+    "Reset all attendance records?"
+  );
+
+  if (!confirmed) return;
+
+  await clearAttendance();
+
+  setAttendance([]);
+
+  alert(
+    "Attendance records cleared."
+  );
+};
+
+//PREVENT NEW SESSION WHILE GAMES ARE ACTIVE
+const hasActiveGames = () =>
+  courts.some(
+    (court) => court.players.length > 0
+  );
+
+
+//END OF HELPER
+
 // ===== PLAYER ACTIONS =====
  const addPlayer = async () => {
     const trimmedName = name.trim();
@@ -310,27 +395,67 @@ const formatMatchDuration = (
 let newPlayer;
 
 if (existingDirectoryPlayer) {
+
   newPlayer = {
     ...existingDirectoryPlayer,
+
+    currentStreak:
+      existingDirectoryPlayer.currentStreak ?? 0,
+
+    bestStreak:
+      existingDirectoryPlayer.bestStreak ?? 0,
+
     waitingSince: Date.now(),
   };
 } else {
-  newPlayer = {
-    id: crypto.randomUUID(),
-    name: trimmedName,
-    gamesPlayed: 0,
-    wins: 0,
-    losses: 0,
-    bracket: "normal",
-    waitingSince: Date.now(),
-  };
+ newPlayer = {
+  id: crypto.randomUUID(),
+  name: trimmedName,
+  gamesPlayed: 0,
+  wins: 0,
+  losses: 0,
+  currentStreak: 0,
+  bestStreak: 0,
+  bracket: "normal",
+  waitingSince: Date.now(),
+};
 
-  await saveDirectoryPlayer(newPlayer);
-
+// SET DIRECTORY PLAYER
+await saveDirectoryPlayer(newPlayer);
   setDirectory((prev) => [
     ...prev,
     newPlayer,
   ]);
+}
+
+// SET PLAYERS
+await saveDirectoryPlayer(newPlayer);
+
+const alreadyAttended =
+  attendance.some(
+    (record) =>
+      record.sessionId === sessionId &&
+      record.playerId === newPlayer.id
+  );
+
+if (!alreadyAttended) {
+
+  const attendanceRecord = {
+    id: crypto.randomUUID(),
+    playerId: newPlayer.id,
+    playerName: newPlayer.name,
+    sessionId,
+    timestamp: Date.now(),
+  };
+
+  await saveAttendance(
+  attendanceRecord
+);
+
+setAttendance((prev) => [
+  ...prev,
+  attendanceRecord,
+]);
 }
 
 setPlayers((prev) => [
@@ -480,12 +605,20 @@ if (
 
     const lastCourt = courts[courts.length - 1];
 
-    if (lastCourt.players.length > 0) {
-      setPlayers((prev) => [
-        ...prev,
-        ...lastCourt.players,
-      ]);
-    }
+  if (lastCourt.players.length > 0) {
+
+  setPlayers((prev) =>
+    sortPlayers([
+      ...prev,
+      ...lastCourt.players.map(
+        (player) => ({
+          ...player,
+          waitingSince: Date.now(),
+        })
+      ),
+    ])
+  );
+}
 
     setCourts((prev) => prev.slice(0, -1));
   };
@@ -586,18 +719,37 @@ setMatches((prev) => [
         (winningTeam === "A" && isTeamA) ||
         (winningTeam === "B" && !isTeamA);
 
-    return {
+    const currentStreak = won
+  ? (player.currentStreak || 0) + 1
+  : 0;
+
+return {
   ...player,
-  gamesPlayed: player.gamesPlayed + 1,
+
+  gamesPlayed:
+    player.gamesPlayed + 1,
+
   wins:
     (player.wins || 0) +
     (won ? 1 : 0),
+
   losses:
     (player.losses || 0) +
     (won ? 0 : 1),
-  bracket: won ? "winner" : "loser",
+
+  currentStreak,
+
+  bestStreak: Math.max(
+    player.bestStreak || 0,
+    currentStreak
+  ),
+
+  bracket:
+    won ? "winner" : "loser",
+
   waitingSince: Date.now(),
 };
+
     }
   );
 const updatedDirectory = directory.map(
@@ -617,9 +769,12 @@ const updatedDirectory = directory.map(
 
 setDirectory(updatedDirectory);
 
-for (const player of updatedDirectory) {
-  await saveDirectoryPlayer(player);
-}
+await Promise.all(
+  updatedDirectory.map(
+    (player) =>
+      saveDirectoryPlayer(player)
+  )
+);
 
   setPlayers((prev) =>
     sortPlayers([
@@ -646,9 +801,10 @@ const resetAll = () => {
   const confirmed = window.confirm(
     "Clear Dashboard?"
   );
-
+  
   if (!confirmed) return;
-
+  alert( "Dashboard Cleared." 
+    );
   localStorage.removeItem(
     STORAGE_KEYS.COURTS
   );
@@ -659,9 +815,69 @@ const resetAll = () => {
   setError("");
 };
 
+//Start new session
+
+const startNewSession = () => {
+
+  if (hasActiveGames()) {
+    alert(
+      "Finish or clear all active games before starting a new session."
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `End Session ${sessionId} and start Session ${sessionId + 1}?`
+  );
+
+  if (!confirmed) return;
+
+  setPlayers([]);
+  setCourts(DEFAULT_COURTS);
+
+  setName("");
+  setError("");
+
+  setSessionId((prev) => prev + 1);
+
+  alert(
+    `Session ${sessionId + 1} started.`
+  );
+};
+
+//session reset
+
+const resetSession = () => {
+
+  if (hasActiveGames()) {
+    alert(
+      "Finish or clear all active games before resetting the session."
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Reset Session ${sessionId}?`
+  );
+
+  if (!confirmed) return;
+
+  setPlayers([]);
+  setCourts(DEFAULT_COURTS);
+  setName("");
+  setError("");
+
+  alert(
+    `Session ${sessionId} has been reset.`
+  );
+};
+
+//delete session
+
 const deleteSession = async (
   sessionToDelete
 ) => {
+
   const confirmed = window.confirm(
     `Delete Session ${sessionToDelete}?`
   );
@@ -672,6 +888,10 @@ const deleteSession = async (
     sessionToDelete
   );
 
+  await deleteAttendanceBySession(
+    sessionToDelete
+  );
+
   setMatches((prev) =>
     prev.filter(
       (match) =>
@@ -679,14 +899,23 @@ const deleteSession = async (
         sessionToDelete
     )
   );
+
+  setAttendance((prev) =>
+    prev.filter(
+      (record) =>
+        record.sessionId !==
+        sessionToDelete
+    )
+  );
 };
+
 
 // CLEAR HISTORY
 
 const clearHistory = async () => {
 
   const confirmed = window.confirm(
-    "Delete ALL match history and reset sessions?"
+    "Delete ALL match history?"
   );
 
   if (!confirmed) return;
@@ -695,15 +924,49 @@ const clearHistory = async () => {
 
   setMatches([]);
 
-  setSessionId(1);
-
-  localStorage.setItem(
-    STORAGE_KEYS.SESSION,
-    "1"
-  );
-
   alert(
     "All match history cleared."
+  );
+};
+
+// Factory Reset = clears all data including player directory
+const factoryReset = async () => {
+
+  const confirmed = window.confirm(
+    "WARNING: This will permanently delete ALL data including saved players. Continue?"
+  );
+
+  if (!confirmed) return;
+
+  await clearAllMatches();
+  await clearAttendance();
+
+  // Delete every saved player
+  for (const player of directory) {
+    await deleteDirectoryPlayer(player.id);
+  }
+
+  setMatches([]);
+  setAttendance([]);
+  setDirectory([]);
+
+  setPlayers([]);
+
+localStorage.removeItem(
+  STORAGE_KEYS.COURTS
+);
+
+setCourts(DEFAULT_COURTS);
+
+setSessionId(1);
+
+localStorage.setItem(
+  STORAGE_KEYS.SESSION,
+  "1"
+);
+
+  alert(
+    "Factory Reset completed."
   );
 };
 
@@ -724,14 +987,47 @@ const clearStandings = async () => {
       gamesPlayed: 0,
       wins: 0,
       losses: 0,
+      currentStreak: 0,
+      bestStreak: 0,
       bracket: "normal",
     }));
 
-  for (const player of resetPlayers) {
-    await saveDirectoryPlayer(player);
-  }
+    await Promise.all(
+  resetPlayers.map(
+    (player) =>
+      saveDirectoryPlayer(player)
+  )
+);
 
   setDirectory(resetPlayers);
+
+  setPlayers((prev) =>
+  prev.map((player) => ({
+    ...player,
+    gamesPlayed: 0,
+    wins: 0,
+    losses: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+    bracket: "normal",
+  }))
+);
+setCourts((prev) =>
+  prev.map((court) => ({
+    ...court,
+    players: court.players.map(
+      (player) => ({
+        ...player,
+        gamesPlayed: 0,
+        wins: 0,
+        losses: 0,
+        currentStreak: 0,
+        bestStreak: 0,
+        bracket: "normal",
+      })
+    ),
+  }))
+);
 
   alert(
     "All standings have been reset."
@@ -739,6 +1035,8 @@ const clearStandings = async () => {
 };
 
 // END OF CLEAR STANDINGS
+
+
 
 // ===== DERIVED DATA =====
 
@@ -769,17 +1067,49 @@ const activePlayers = courts.reduce(
   0
 );
 
+//total players
 const totalPlayers =
   players.length + activePlayers;
 
+//total games played
 const totalGamesPlayed =
-  [...players, ...courts.flatMap(c => c.players)]
-    .reduce(
-      (sum, p) => sum + p.gamesPlayed,
-      0
-    );  
+  matches.length;
 
     // == STANDINGS 
+
+    // == ATTENDANCE LEADERS 
+const attendanceMap = {};
+
+attendance.forEach((record) => {
+  if (!attendanceMap[record.playerId]) {
+    attendanceMap[record.playerId] = {
+      playerId: record.playerId,
+      playerName: record.playerName,
+      count: 0,
+    };
+  }
+
+  attendanceMap[record.playerId].count++;
+});
+//attendance leaders
+const attendanceLeaders =
+  Object.values(attendanceMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+//attendance total sessions
+
+const totalSessions =
+  Math.max(
+    new Set(
+      attendance.map(
+        (record) => record.sessionId
+      )
+    ).size,
+    1
+  );
+
+    //END OF ATTENDANCE LEADERS
 
 const standings = directory
   .filter(
@@ -993,19 +1323,24 @@ const groupedMatches = matches.reduce(
   return (
 
     /* ===== APP CONTAINER START ===== */
-    <div className="min-h-screen bg-slate-100 p-6">
+    <div className="min-h-screen bg-slate-100 p-3 md:p-6">
 
      {/* ===== PAGE CONTAINER START ===== */}
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto w-full">
 
         {/* ===== HEADER START ===== */}
-        <h1 className="text-5xl font-bold text-center mb-8">
+        <h1 className="text-3xl md:text-5xl font-bold text-center mb-8">
           🏓 PickleStack
         </h1>
+        <div className="text-center mb-6">
+  <div className="text-lg font-semibold text-blue-600">
+    🏷️ Session {sessionId}
+  </div>
+</div>
          {/* ===== HEADER END ===== */}
 
 {/* TAB NAVIGATION START */}
-        <div className="flex justify-center gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
 
 {/* ==DASHBOARD ==*/}
 
@@ -1036,6 +1371,20 @@ const groupedMatches = matches.reduce(
     🏆 Standings
   </button>
 
+  {/*==ATTENDANCE==*/}
+  <button
+  onClick={() =>
+    setActiveTab("attendance")
+  }
+  className={`px-4 py-2 rounded ${
+    activeTab === "attendance"
+      ? "bg-blue-600 text-white"
+      : "bg-white"
+  }`}
+>
+  👥 Attendance
+</button>
+
 {/* == HISTORY ==*/}
   <button
     onClick={() =>
@@ -1052,7 +1401,7 @@ const groupedMatches = matches.reduce(
 </div>
 
         {activeTab === "dashboard" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 
          
 <div className="relative flex-1">
@@ -1240,7 +1589,29 @@ const groupedMatches = matches.reduce(
 >
   🧹 Reset Dashboard
 </button>
-          </div>
+
+<button
+  onClick={startNewSession}
+  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded"
+>
+  ➡️ New Session
+</button>
+
+<button
+  onClick={resetSession}
+  className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded"
+>
+  🔄 Reset Session
+</button>
+
+<button
+  onClick={factoryReset}
+  className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded"
+>
+  ☢️ Factory Reset
+</button>
+
+  </div>
 
           {error && (
             <div className="mt-3 p-3 rounded bg-red-100 text-red-700">
@@ -1248,7 +1619,7 @@ const groupedMatches = matches.reduce(
             </div>
           )}
 
-        <div className="mt-4 space-y-1">
+        <div className="mt-4 space-y-1 text-sm md:text-base">
   <p>
     <strong>Courts:</strong> {courts.length}
   </p>
@@ -1277,7 +1648,8 @@ const groupedMatches = matches.reduce(
         )}
 {/* STANDINGS VIEW START */}
   
-  {activeTab === "standings" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
+  {activeTab === "standings" && (
+    <div className="bg-white rounded-xl shadow p-4 mb-6">
 
 <div className="flex justify-between items-center mb-4">
 
@@ -1345,6 +1717,17 @@ standings.map((player, index) => {
           L: {player.losses || 0}
         </div>
 
+        <div className="text-xs text-indigo-500">
+  👥 Sessions:
+  {" "}
+  {getAttendanceCount(player.id)}
+</div>
+  {(player.currentStreak || 0) > 0 && (
+  <div className="text-xs text-orange-500 font-semibold">
+    🔥 Streak: {player.currentStreak}
+  </div>
+)}
+
       </div>
 
     </div>
@@ -1356,7 +1739,163 @@ standings.map((player, index) => {
 )}
 {/* STANDINGS VIEW END */}
 
-{/* MATCH HISTORY VIEW START */}
+{/* ATTENDANCE VIEW START */}
+
+{activeTab === "attendance" && (<div className="bg-white rounded-xl shadow p-4">
+    <div className="flex justify-between items-center mb-4">
+      <h2 className="text-2xl font-bold">
+        👥 Attendance
+      </h2>
+
+      <button
+        onClick={clearAttendanceRecords}
+        className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">
+        🧹 Reset Attendance
+      </button>
+
+    </div>
+
+{attendanceLeaders.length > 0 && (
+  //attendance champion
+  <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-4 mb-4">
+
+    <div className="text-lg font-bold text-yellow-700">
+      👑 Attendance Champion
+    </div>
+
+    <div className="mt-1">
+      {attendanceLeaders[0].playerName}
+    </div>
+
+    <div className="text-sm text-gray-600">
+      {attendanceLeaders[0].count}
+{" "}
+{attendanceLeaders[0].count === 1
+  ? "session"
+  : "sessions"}
+{" "}
+attended
+    </div>
+
+  </div>
+
+)}
+<div className="grid md:grid-cols-3 gap-4 mb-6">
+
+  <div className="bg-blue-50 rounded-lg p-4">
+
+    <div className="text-sm text-gray-600">
+      Total Records
+    </div>
+
+    <div className="text-2xl font-bold text-blue-600">
+      {attendance.length}
+    </div>
+
+  </div>
+
+  <div className="bg-green-50 rounded-lg p-4">
+
+    <div className="text-sm text-gray-600">
+      Unique Players
+    </div>
+
+    <div className="text-2xl font-bold text-green-600">
+      {attendanceLeaders.length}
+    </div>
+
+  </div>
+
+  <div className="bg-purple-50 rounded-lg p-4">
+
+    <div className="text-sm text-gray-600">
+      Current Session
+    </div>
+
+    <div className="text-2xl font-bold text-purple-600">
+      {sessionId}
+    </div>
+
+  </div>
+
+</div>
+
+    
+{attendanceLeaders.length === 0 ? (
+
+  <p>No attendance data yet</p>
+
+) : (
+
+  <>
+
+    <h3 className="font-semibold text-gray-700 mb-3">
+      🏅 Attendance Leaderboard
+    </h3>
+
+    {attendanceLeaders.map((player, index) => (
+
+        <div
+  key={player.playerId}
+  className="flex justify-between border-b py-2"
+>
+
+          <div>
+
+  {index === 0 && "🥇 "}
+  {index === 1 && "🥈 "}
+  {index === 2 && "🥉 "}
+
+  <span
+    className={
+      index === 0
+        ? "text-yellow-500 font-bold"
+        : index === 1
+        ? "text-gray-500 font-bold"
+        : index === 2
+        ? "text-orange-500 font-bold"
+        : "font-bold"
+    }
+  >
+    #{index + 1}
+  </span>
+
+  {" "}
+  {player.playerName}
+
+</div>
+
+
+        <div className="text-right">
+
+  <div className="font-semibold text-blue-600">
+    {player.count} {player.count === 1 ? "session" : "sessions"}
+  </div>
+
+  <div className="text-xs text-gray-500">
+    {Math.round(
+      (player.count / totalSessions) * 100
+    )}
+    % attendance
+  </div>
+
+</div>
+
+        </div>
+
+
+
+      ))}
+
+  </>
+
+)}
+
+</div>
+
+)}
+
+{/* ATTENDANCE VIEW END */}
 
 {/* MATCH HISTORY VIEW START */}
 {activeTab === "history" && (
@@ -1375,7 +1914,6 @@ standings.map((player, index) => {
   </button>
 
 </div>
-
     {matches.length === 0 ? (
       <p>No matches recorded yet.</p>
     ) : (
@@ -1572,9 +2110,18 @@ standings.map((player, index) => {
             ) : (
               sortedPlayers.map((player, index) => (
                 <div
-                  key={player.id}
-                  className="flex justify-between items-center border-b py-2"
-                >
+  key={player.id}
+  className="
+    flex
+    flex-col
+    md:flex-row
+    md:justify-between
+    md:items-center
+    border-b
+    py-2
+    gap-2
+  "
+>
                   <div>
                     <div>
                       {index + 1}. {player.name}
@@ -1602,7 +2149,7 @@ standings.map((player, index) => {
                   </div>
 
 
-<div className="flex flex-col gap-1">
+<div className="flex flex-col gap-1 w-full md:w-auto">
   <select
     value={
       selectedCourt[player.id] || ""
@@ -1679,6 +2226,20 @@ standings.map((player, index) => {
                   <h2 className="text-2xl font-bold mb-4">
                     Court {court.id}
                   </h2>
+
+                {court.startedAt && (
+  <div
+    className={`mb-3 font-semibold ${
+      getCourtMinutes(court.startedAt) >= 20
+        ? "text-red-600"
+        : getCourtMinutes(court.startedAt) >= 15
+        ? "text-yellow-600"
+        : "text-green-600"
+    }`}
+  >
+    ⏱ {getCourtDuration(court.startedAt)}
+  </div>
+)}    
 
                   {court.players.length === 0 ? (
                     <p className="text-gray-400">
