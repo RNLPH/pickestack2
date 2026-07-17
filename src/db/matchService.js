@@ -29,3 +29,7 @@ export async function deleteMatchesBySession(
 export async function clearAllMatches() {
   await db.matches.clear();
 }
+
+export async function updateMatch(match) {
+  return await db.matches.put(match);
+}

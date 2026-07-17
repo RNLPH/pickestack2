@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { getDirectory, saveDirectoryPlayer, deleteDirectoryPlayer, } from "./db/directoryService";
 import { getPlayers, savePlayers } from "./db/playerService";
-import { saveMatch, getMatches, deleteMatchesBySession, clearAllMatches, } from "./db/matchService";
+import { saveMatch, getMatches, updateMatch, deleteMatchesBySession, clearAllMatches, } from "./db/matchService";
 import { getAttendance, saveAttendance, clearAttendance, deleteAttendanceBySession, } from "./db/attendanceService";
+import { getStandingsHistory, saveStandingsHistory, clearStandingsHistory } from "./db/standingsHistoryService";
+import { DndContext, useDraggable, useDroppable, } from "@dnd-kit/core";
 
 const DEFAULT_COURTS = [
   { id: 1, players: [] },
@@ -14,6 +16,180 @@ const STORAGE_KEYS = {
   SESSION: "picklestack_session",
 };
 
+
+
+//FOR DRAG AND DROP PLAYERS function
+function DraggablePlayer({ player }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+  } = useDraggable({
+    id: `queue-player-${player.id}`,
+    data: {
+      player,
+      source: "queue",
+    },
+  });
+
+  const style = {
+    transform: transform
+      ? `translate3d(
+          ${transform.x}px,
+          ${transform.y}px,
+          0
+        )`
+      : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="cursor-grab"
+    >
+      {player.name}
+    </div>
+  );
+}
+
+//Dropable court function
+
+function DroppableCourt({
+  courtId,
+  children,
+}) {
+  const {
+    setNodeRef,
+    isOver,
+  } = useDroppable({
+    id: `court-${courtId}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={
+        isOver
+          ? "ring-4 ring-green-400 rounded-xl"
+          : ""
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+
+//DroppableQueue
+function DroppableQueue({
+  children,
+}) {
+  const {
+    setNodeRef,
+    isOver,
+  } = useDroppable({
+    id: "waiting-queue",
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`
+        transition-all
+        ${
+          isOver
+            ? "ring-4 ring-blue-400 rounded-xl bg-blue-50"
+            : ""
+        }
+      `}
+    >
+      {isOver && (
+        <div className="text-center text-blue-600 font-bold mb-2">
+          Drop player here
+        </div>
+      )}
+
+      {children}
+    </div>
+  );
+}
+
+//DroppableCourtPlayer
+function DroppableCourtPlayer({
+  player,
+  children,
+}) {
+  const {
+    setNodeRef,
+    isOver,
+  } = useDroppable({
+    id: `court-player-${player.id}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={
+        isOver
+          ? "ring-2 ring-yellow-400 rounded"
+          : ""
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+//DraggableCourtPlayer
+
+function DraggableCourtPlayer({
+  player,
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+  } = useDraggable({
+  id: `court-player-${player.id}`,
+  data: {
+    player,
+    source: "court",
+  },
+});
+
+  const style = {
+    transform: transform
+      ? `translate3d(
+          ${transform.x}px,
+          ${transform.y}px,
+          0
+        )`
+      : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="
+  cursor-grab
+  p-2
+  rounded
+"
+    >
+      {player.name}
+    </div>
+  );
+}
+
+//app function
 export default function App() {
 
   // ===== REFS =====
@@ -23,11 +199,19 @@ export default function App() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [matches, setMatches] = useState([]);
+  const [standingsHistory,setStandingsHistory] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [, forceUpdate] = useState(0);
    const [directory, setDirectory] = useState([]);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [expandedAttendance, setExpandedAttendance] =
+  useState(null);
+  const [expandedStandings, setExpandedStandings] =
+  useState(null);
+  const [expandedMatchSession,
+  setExpandedMatchSession] =
+  useState(null);
 
 const [sessionId, setSessionId] = useState(() => {
   return Number(
@@ -64,6 +248,24 @@ useEffect(() => {
   }
 
   loadMatches();
+}, []);
+
+//LOAD HISTORY
+useEffect(() => {
+
+  async function loadHistory() {
+
+    const history =
+      await getStandingsHistory();
+
+    setStandingsHistory(
+      history
+    );
+
+  }
+
+  loadHistory();
+
 }, []);
 
 //LOAD ATTENDANCE
@@ -107,7 +309,6 @@ useEffect(() => {
     const storedPlayers =
       await getPlayers();
 
-   // console.log("Loaded players:", storedPlayers);Show more lines
 
     setPlayers(storedPlayers);
     setPlayersLoaded(true);
@@ -147,15 +348,24 @@ useEffect(() => {
   }, [courts]);
 
   // ===== PLAYER SORTING =====
-const sortPlayers = (playerList) => {
+  const sortPlayers = (playerList) => {
   return [...playerList].sort((a, b) => {
 
-    // Priority 1 - Lowest games played
+    // PRIORITY FIRST
+    if (a.priority && !b.priority) {
+      return -1;
+    }
+
+    if (!a.priority && b.priority) {
+      return 1;
+    }
+
+    // Lowest games played
     if (a.gamesPlayed !== b.gamesPlayed) {
       return a.gamesPlayed - b.gamesPlayed;
     }
 
-    // Priority 2 - Winners before losers
+    // Winners before losers
     if (
       a.bracket === "winner" &&
       b.bracket === "loser"
@@ -170,7 +380,6 @@ const sortPlayers = (playerList) => {
       return 1;
     }
 
-    // Priority 3 - Waiting longest
     return a.waitingSince - b.waitingSince;
   });
 };
@@ -340,7 +549,280 @@ const hasActiveGames = () =>
     (court) => court.players.length > 0
   );
 
+//EXPORT CSV
+const downloadCSV = (
+  filename,
+  rows
+) => {
+  const csvContent = rows
+    .map((row) =>
+      row
+        .map((value) => `"${value}"`)
+        .join(",")
+    )
+    .join("\n");
 
+  const blob = new Blob(
+    [csvContent],
+    {
+      type: "text/csv;charset=utf-8;"
+    }
+  );
+
+  const url =
+    URL.createObjectURL(blob);
+
+  const link =
+    document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
+};
+
+//EXPORT STANDINGS
+const exportStandings = () => {
+
+  const rows = [
+    [
+      "Rank",
+      "Player",
+      "Games",
+      "Wins",
+      "Losses"
+    ]
+  ];
+
+  standings.forEach(
+    (player, index) => {
+
+      rows.push([
+        index + 1,
+        player.name,
+        player.gamesPlayed,
+        player.wins,
+        player.losses,
+      ]);
+
+    }
+  );
+
+  downloadCSV(
+    `standings-session-${sessionId}.csv`,
+    rows
+  );
+};
+
+const exportAttendance = () => {
+
+  const rows = [
+    [
+      "Player",
+      "Sessions Attended"
+    ]
+  ];
+
+  attendanceLeaders.forEach(
+    (player) => {
+
+      rows.push([
+        player.playerName,
+        player.count
+      ]);
+
+    }
+  );
+
+  downloadCSV(
+    "attendance.csv",
+    rows
+  );
+};
+
+const exportMatches = () => {
+
+  const rows = [
+    [
+      "Session",
+      "Court",
+      "Team A",
+      "Team B",
+      "Winner"
+    ]
+  ];
+
+  matches.forEach((match) => {
+
+    rows.push([
+      match.sessionId,
+      match.courtId,
+      match.teamA.join(" & "),
+      match.teamB.join(" & "),
+      match.winner,
+    ]);
+
+  });
+
+  downloadCSV(
+    "matches.csv",
+    rows
+  );
+};
+
+
+
+
+//handleDragEnd FUNCTION
+const handleDragEnd = (
+  event
+) => {
+
+  const {
+    active,
+    over,
+  } = event;
+
+  if (!over) return;
+
+  const dragData =
+    active.data.current;
+
+  if (!dragData) return;
+
+ // Court → Queue
+if (
+  over.id === "waiting-queue" &&
+  dragData.source === "court"
+) {
+
+  const playerId =
+    active.id.replace(
+      "court-player-",
+      ""
+    );
+
+  moveCourtPlayerToQueue(
+    playerId
+  );
+
+  return;
+}
+
+  const targetCourtId =
+    Number(
+      over.id.replace(
+        "court-",
+        ""
+      )
+    );
+
+  // Queue -> Court
+  if (
+    dragData.source ===
+    "queue"
+  ) {
+
+    const playerId =
+      active.id.replace(
+        "queue-player-",
+        ""
+      );
+
+      if (
+  over.id.startsWith(
+    "court-player-"
+  )
+) {
+
+  const queuePlayerId =
+    active.id.replace(
+      "queue-player-",
+      ""
+    );
+
+  const courtPlayerId =
+    over.id.replace(
+      "court-player-",
+      ""
+    );
+
+  swapQueueAndCourtPlayer(
+    queuePlayerId,
+    courtPlayerId
+  );
+
+  return;
+}
+    addPlayerToCourt(
+      playerId,
+      targetCourtId
+    );
+
+    return;
+  }
+
+  // Court -> Court
+  if (
+    dragData.source ===
+    "court"
+  ) {
+
+    const playerId =
+      active.id.replace(
+        "court-player-",
+        ""
+      );
+      if (
+  over.id.startsWith(
+    "court-player-"
+  )
+) {
+
+  const sourcePlayerId =
+    active.id.replace(
+      "court-player-",
+      ""
+    );
+
+  const targetPlayerId =
+    over.id.replace(
+      "court-player-",
+      ""
+    );
+
+  if (
+    sourcePlayerId !==
+    targetPlayerId
+  ) {
+
+    swapCourtPlayers(
+      sourcePlayerId,
+      targetPlayerId
+    );
+
+  }
+
+  return;
+}
+
+    moveCourtPlayer(
+      playerId,
+      targetCourtId
+    );
+  }
+
+};
+
+
+
+  
 //END OF HELPER
 
 // ===== PLAYER ACTIONS =====
@@ -399,6 +881,10 @@ if (existingDirectoryPlayer) {
   newPlayer = {
     ...existingDirectoryPlayer,
 
+  priority:
+  existingDirectoryPlayer.priority ??
+  false,
+
     currentStreak:
       existingDirectoryPlayer.currentStreak ?? 0,
 
@@ -411,6 +897,7 @@ if (existingDirectoryPlayer) {
  newPlayer = {
   id: crypto.randomUUID(),
   name: trimmedName,
+  priority: false,
   gamesPlayed: 0,
   wins: 0,
   losses: 0,
@@ -539,17 +1026,209 @@ const removeCourtPlayer = (courtId, playerId) => {
   setCourts((prev) =>
     prev.map((court) =>
       court.id === courtId
-        ? {
-            ...court,
-            players: court.players.filter(
-              (p) => p.id !== playerId
-            ),
-          }
+        ? (() => {
+    const updatedPlayers =
+      court.players.filter(
+        (p) => p.id !== playerId
+      );
+
+    return {
+      ...court,
+      players: updatedPlayers,
+      startedAt:
+        updatedPlayers.length < 4
+          ? null
+          : court.startedAt,
+    };
+  })()
         : court
     )
   );
 };
 
+//swapQueueAndCourtPlayer 
+const swapQueueAndCourtPlayer = (
+  queuePlayerId,
+  courtPlayerId
+) => {
+
+  const queuePlayer =
+    players.find(
+      (p) => p.id === queuePlayerId
+    );
+
+  if (!queuePlayer) return;
+
+  const courtPlayer =
+    courts
+      .flatMap(
+        (court) => court.players
+      )
+      .find(
+        (player) =>
+          player.id === courtPlayerId
+      );
+
+  if (!courtPlayer) return;
+
+  setCourts((prevCourts) =>
+    prevCourts.map((court) => ({
+      ...court,
+      players: court.players.map(
+        (player) =>
+          player.id === courtPlayerId
+            ? queuePlayer
+            : player
+      ),
+    }))
+  );
+
+  setPlayers((prev) =>
+    sortPlayers([
+      ...prev.filter(
+        (p) =>
+          p.id !== queuePlayerId
+      ),
+
+      {
+        ...courtPlayer,
+        waitingSince: Date.now(),
+      },
+    ])
+  );
+
+};
+
+//SWAP COURT PLAYERS
+const swapCourtPlayers = (
+  sourcePlayerId,
+  targetPlayerId
+) => {
+
+  setCourts((prevCourts) => {
+
+    const updatedCourts =
+      JSON.parse(
+        JSON.stringify(prevCourts)
+      );
+
+    let sourceLocation = null;
+    let targetLocation = null;
+
+    updatedCourts.forEach(
+      (court, courtIndex) => {
+
+        court.players.forEach(
+          (player, playerIndex) => {
+
+            if (
+              player.id === sourcePlayerId
+            ) {
+              sourceLocation = {
+                courtIndex,
+                playerIndex,
+              };
+            }
+
+            if (
+              player.id === targetPlayerId
+            ) {
+              targetLocation = {
+                courtIndex,
+                playerIndex,
+              };
+            }
+
+          }
+        );
+      }
+    );
+
+    if (
+      !sourceLocation ||
+      !targetLocation
+    ) {
+      return prevCourts;
+    }
+
+    const sourcePlayer =
+      updatedCourts[
+        sourceLocation.courtIndex
+      ].players[
+        sourceLocation.playerIndex
+      ];
+
+    const targetPlayer =
+      updatedCourts[
+        targetLocation.courtIndex
+      ].players[
+        targetLocation.playerIndex
+      ];
+
+    updatedCourts[
+      sourceLocation.courtIndex
+    ].players[
+      sourceLocation.playerIndex
+    ] = targetPlayer;
+
+    updatedCourts[
+      targetLocation.courtIndex
+    ].players[
+      targetLocation.playerIndex
+    ] = sourcePlayer;
+
+    return updatedCourts;
+  });
+};
+
+const moveCourtPlayerToQueue = (
+  playerId
+) => {
+  let playerToMove = null;
+
+  setCourts((prev) =>
+    prev.map((court) => {
+
+      const found =
+        court.players.find(
+          (p) => p.id === playerId
+        );
+
+      if (found) {
+        playerToMove = found;
+      }
+
+      const updatedPlayers =
+  court.players.filter(
+    (p) => p.id !== playerId
+  );
+
+return {
+  ...court,
+  players: updatedPlayers,
+  startedAt:
+    updatedPlayers.length < 4
+      ? null
+      : court.startedAt,
+};
+    })
+  );
+
+  if (playerToMove) {
+    setPlayers((prev) =>
+      sortPlayers([
+        ...prev,
+        {
+          ...playerToMove,
+          waitingSince: Date.now(),
+        },
+      ])
+    );
+  }
+};
+
+
+//add player to court
 const addPlayerToCourt = (
   playerId,
   courtId
@@ -582,13 +1261,22 @@ if (
   setCourts((prev) =>
     prev.map((court) =>
       court.id === Number(courtId)
-        ? {
-            ...court,
-            players: [
-              ...court.players,
-              player,
-            ],
-          }
+  ? (() => {
+      const updatedPlayers = [
+        ...court.players,
+        player,
+      ];
+
+      return {
+        ...court,
+        players: updatedPlayers,
+        startedAt:
+          updatedPlayers.length === 4 &&
+          !court.startedAt
+            ? Date.now()
+            : court.startedAt,
+      };
+    })()
         : court
     )
   );
@@ -599,6 +1287,90 @@ if (
     )
   );
 };
+
+
+//move court player
+const moveCourtPlayer = (
+  playerId,
+  targetCourtId
+) => {
+
+  //SOURCE COURT
+const sourceCourt = courts.find(
+  (court) =>
+    court.players.some(
+      (p) => p.id === playerId
+    )
+);
+
+if (
+  sourceCourt &&
+  sourceCourt.id === targetCourtId
+) {
+  return;
+}
+
+  let playerToMove = null;
+
+  setCourts((prev) => {
+
+    const updated = prev.map((court) => {
+
+      const found =
+        court.players.find(
+          (p) => p.id === playerId
+        );
+
+      if (found) {
+        playerToMove = found;
+      }
+
+      return {
+        ...court,
+        players: court.players.filter(
+          (p) => p.id !== playerId
+        ),
+      };
+    });
+
+    return updated.map((court) => {
+
+      if (
+        court.id === targetCourtId
+      ) {
+
+        if (
+          court.players.length >= 4
+        ) {
+          alert("Court is full.");
+          return court;
+        }
+
+
+     const updatedPlayers = [
+  ...court.players,
+  playerToMove,
+];
+
+return {
+  ...court,
+  players: updatedPlayers,
+  startedAt:
+    updatedPlayers.length === 4 &&
+    !court.startedAt
+      ? Date.now()
+      : court.startedAt,
+};
+      }
+
+      return court;
+    });
+
+  });
+
+};
+
+//remove court
 
   const removeCourt = () => {
     if (courts.length <= 1) return;
@@ -680,7 +1452,9 @@ const endGame = async (
 
   if (!court) return;
 
+  //Match record
 const matchRecord = {
+
   sessionId,
 
   startedAt: court.startedAt,
@@ -704,10 +1478,16 @@ const matchRecord = {
   winner: winningTeam,
 };
 
-await saveMatch(matchRecord);
+const matchId =
+  await saveMatch(matchRecord);
+
+const savedMatch = {
+  ...matchRecord,
+  id: matchId,
+};
 
 setMatches((prev) => [
-  matchRecord,
+  savedMatch,
   ...prev,
 ]);
 
@@ -797,27 +1577,10 @@ await Promise.all(
 };
 
 // ===== SESSION ACTIONS =====
-const resetAll = () => {
-  const confirmed = window.confirm(
-    "Clear Dashboard?"
-  );
-  
-  if (!confirmed) return;
-  alert( "Dashboard Cleared." 
-    );
-  localStorage.removeItem(
-    STORAGE_KEYS.COURTS
-  );
-
-  setPlayers([]);
-  setCourts(DEFAULT_COURTS);
-  setName("");
-  setError("");
-};
 
 //Start new session
 
-const startNewSession = () => {
+const startNewSession = async () => {
 
   if (hasActiveGames()) {
     alert(
@@ -825,6 +1588,8 @@ const startNewSession = () => {
     );
     return;
   }
+
+ 
 
   const confirmed = window.confirm(
     `End Session ${sessionId} and start Session ${sessionId + 1}?`
@@ -838,6 +1603,68 @@ const startNewSession = () => {
   setName("");
   setError("");
 
+
+const latestMatches =
+  await getMatches();
+
+const sessionMatches =
+  latestMatches.filter(
+    (match) =>
+      match.sessionId === sessionId
+  );
+
+const historyRecord = {
+  id: crypto.randomUUID(),
+  sessionId,
+  timestamp: Date.now(),
+
+  matchCount:
+    sessionMatches.length,
+
+  standings: standings.map(
+    (player) => ({
+      playerId: player.id,
+      playerName: player.name,
+      gamesPlayed: player.gamesPlayed,
+      wins: player.wins,
+      losses: player.losses,
+      currentStreak:
+        player.currentStreak || 0,
+      bestStreak:
+        player.bestStreak || 0,
+    })
+  ),
+};
+
+await saveStandingsHistory(
+  historyRecord
+);
+
+setStandingsHistory(
+  (prev) => [
+    ...prev,
+    historyRecord,
+  ]
+);
+
+const resetDirectory =
+  directory.map((player) => ({
+    ...player,
+    gamesPlayed: 0,
+    wins: 0,
+    losses: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+    bracket: "normal",
+  }));
+
+await Promise.all(
+  resetDirectory.map((player) =>
+    saveDirectoryPlayer(player)
+  )
+);
+
+setDirectory(resetDirectory);
   setSessionId((prev) => prev + 1);
 
   alert(
@@ -909,6 +1736,54 @@ const deleteSession = async (
   );
 };
 
+//EDIT WINNER
+const editMatchWinner = async (
+  matchId,
+  newWinner
+) => {
+
+  const confirmed = window.confirm(
+    `Change winner to Team ${newWinner}?`
+  );
+
+  if (!confirmed) return;
+
+  const updatedMatches =
+    matches.map((match) =>
+
+      match.id === matchId
+
+        ? {
+            ...match,
+            winner: newWinner,
+          }
+
+        : match
+    );
+
+const targetMatch =
+  updatedMatches.find(
+    (match) =>
+      match.id === matchId
+  );
+
+if (!targetMatch) {
+  alert("Match not found.");
+  return;
+}
+
+await updateMatch(targetMatch);
+
+  setMatches(updatedMatches);
+
+  await recalculateStandings(
+    updatedMatches
+  );
+
+  alert(
+    "Match updated and standings recalculated."
+  );
+};
 
 // CLEAR HISTORY
 
@@ -938,8 +1813,9 @@ const factoryReset = async () => {
 
   if (!confirmed) return;
 
-  await clearAllMatches();
-  await clearAttendance();
+await clearAllMatches();
+await clearAttendance();
+await clearStandingsHistory();
 
   // Delete every saved player
   for (const player of directory) {
@@ -949,8 +1825,12 @@ const factoryReset = async () => {
   setMatches([]);
   setAttendance([]);
   setDirectory([]);
+  setStandingsHistory([]);
 
   setPlayers([]);
+  setExpandedAttendance(null);
+setExpandedStandings(null);
+
 
 localStorage.removeItem(
   STORAGE_KEYS.COURTS
@@ -973,13 +1853,16 @@ localStorage.setItem(
 // END OF CLEAR HISTORY
 
 // START OF CLEAR STANDING
-const clearStandings = async () => {
 
+const clearStandings = async () => {
   const confirmed = window.confirm(
     "Reset ALL player statistics?"
   );
 
   if (!confirmed) return;
+
+  await clearStandingsHistory();
+  setStandingsHistory([]);
 
   const resetPlayers =
     directory.map((player) => ({
@@ -1040,6 +1923,98 @@ setCourts((prev) =>
 
 // ===== DERIVED DATA =====
 
+//RECALCULATE STANDINGS
+const recalculateStandings = async (
+  updatedMatches
+) => {
+
+  const playerStats = {};
+
+  // Initialize every player
+  directory.forEach((player) => {
+
+    playerStats[player.id] = {
+      ...player,
+      gamesPlayed: 0,
+      wins: 0,
+      losses: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      bracket: "normal",
+    };
+
+  });
+
+  updatedMatches.forEach((match) => {
+
+    const winningPlayers =
+      match.winner === "A"
+        ? match.teamA
+        : match.teamB;
+
+    const losingPlayers =
+      match.winner === "A"
+        ? match.teamB
+        : match.teamA;
+
+    directory.forEach((player) => {
+
+      if (
+        winningPlayers.includes(player.name)
+      ) {
+
+        playerStats[player.id].gamesPlayed++;
+        playerStats[player.id].wins++;
+
+      }
+
+      else if (
+        losingPlayers.includes(player.name)
+      ) {
+
+        playerStats[player.id].gamesPlayed++;
+        playerStats[player.id].losses++;
+
+      }
+
+    });
+
+  });
+
+  const updatedDirectory =
+    Object.values(playerStats);
+
+  await Promise.all(
+    updatedDirectory.map((player) =>
+      saveDirectoryPlayer(player)
+    )
+  );
+
+  setDirectory(updatedDirectory);
+
+  setPlayers((prev) =>
+  prev.map((player) => {
+
+    const updated =
+      updatedDirectory.find(
+        (p) => p.id === player.id
+      );
+
+    return updated
+      ? {
+          ...player,
+          gamesPlayed:
+            updated.gamesPlayed,
+          wins: updated.wins,
+          losses: updated.losses,
+        }
+      : player;
+  })
+);
+
+};
+
+//SORT PLAYERS
 const sortedPlayers = sortPlayers(players);
 const matchingPlayers =
   name.trim().length > 0
@@ -1078,9 +2053,16 @@ const totalGamesPlayed =
     // == STANDINGS 
 
     // == ATTENDANCE LEADERS 
+
+    const currentAttendance =
+  attendance.filter(
+    (record) =>
+      record.sessionId === sessionId
+  );
+  
 const attendanceMap = {};
 
-attendance.forEach((record) => {
+  currentAttendance.forEach((record) => {
   if (!attendanceMap[record.playerId]) {
     attendanceMap[record.playerId] = {
       playerId: record.playerId,
@@ -1091,11 +2073,11 @@ attendance.forEach((record) => {
 
   attendanceMap[record.playerId].count++;
 });
+
 //attendance leaders
 const attendanceLeaders =
   Object.values(attendanceMap)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+    .sort((a, b) => b.count - a.count);
 
 //attendance total sessions
 
@@ -1219,19 +2201,23 @@ const getSessionSummary = (
   const matches =
     sessionMatches.length;
 
-  const durations =
-    sessionMatches
-      .filter(
-        (m) =>
-          m.startedAt &&
-          m.endedAt
-      )
-      .map(
-        (m) =>
-          (m.endedAt -
-            m.startedAt) /
-          60000
-      );
+ const durations =
+  sessionMatches
+    .filter(
+      (m) =>
+        m.startedAt &&
+        m.endedAt
+    )
+    .map(
+      (m) =>
+        (m.endedAt -
+          m.startedAt) /
+        60000
+    )
+    .filter(
+      (duration) =>
+        duration <= 120
+    );
 
  const avgDuration =
   durations.length > 0
@@ -1305,7 +2291,33 @@ return {
 
 };
 
-const groupedMatches = matches.reduce(
+//GROUPED ATTENDANCE
+const groupedAttendance =
+  attendance.reduce((groups, record) => {
+
+    const key = record.sessionId;
+
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+
+    groups[key].push(record);
+
+    return groups;
+
+  }, {});
+
+//CURRENT MATCHES
+
+  const currentMatches =
+  matches.filter(
+    (match) =>
+      match.sessionId === sessionId
+  );
+
+  //GROUP MATCHES
+const groupedMatches =
+  matches.reduce(
   (groups, match) => {
     const key =
       match.sessionId || 1;
@@ -1386,6 +2398,7 @@ const groupedMatches = matches.reduce(
 </button>
 
 {/* == HISTORY ==*/}
+
   <button
     onClick={() =>
       setActiveTab("history")
@@ -1396,11 +2409,14 @@ const groupedMatches = matches.reduce(
         : "bg-white"
     }`}
   >
-    📜 History
+    📜Match History
   </button>
+
 </div>
 
-        {activeTab === "dashboard" && (<div className="bg-white rounded-xl shadow p-4 mb-6">
+        {activeTab === "dashboard" && (
+          
+          <div className="bg-white rounded-xl shadow p-4 mb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 
          
@@ -1583,12 +2599,6 @@ const groupedMatches = matches.reduce(
               - Court
             </button>
 
-<button
-  onClick={resetAll}
-  className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded"
->
-  🧹 Reset Dashboard
-</button>
 
 <button
   onClick={startNewSession}
@@ -1601,7 +2611,7 @@ const groupedMatches = matches.reduce(
   onClick={resetSession}
   className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded"
 >
-  🔄 Reset Session
+  🔄 Restart Current Session
 </button>
 
 <button
@@ -1656,7 +2666,12 @@ const groupedMatches = matches.reduce(
   <h2 className="text-2xl font-bold">
     🏆 Standings
   </h2>
-
+<button
+  onClick={exportStandings}
+  className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm"
+>
+  📤 Export CSV
+</button>
   <button
     onClick={clearStandings}
     className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded text-sm"
@@ -1735,17 +2750,241 @@ standings.map((player, index) => {
 })
 
   )}
+  <h3 className="font-semibold text-gray-700 mt-8 mb-3">
+  📚 Standings History
+</h3>
+
+{standingsHistory.length === 0 ? (
+
+  <p>No standings history.</p>
+
+) : (
+
+  standingsHistory
+    .sort(
+      (a, b) =>
+        b.sessionId - a.sessionId
+    )
+    .map((history) => (
+
+      <div
+        key={history.id}
+        className="
+          border
+          rounded-xl
+          p-5
+          mb-4
+          bg-white
+          shadow-sm
+        "
+      >
+
+        <div className="flex justify-between items-center">
+
+          <div>
+
+            <h4 className="font-bold text-blue-600">
+              Session {history.sessionId}
+            </h4>
+
+
+            <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-400">
+  {history.standings.length}
+  {" "}Players •{" "}
+  {history.matchCount || 0}
+  {" "}Matches
 </div>
+              {new Date(
+                history.timestamp
+              ).toLocaleDateString()}
+            </div>
+
+          </div>
+
+          <button
+            onClick={() =>
+              setExpandedStandings(
+                expandedStandings === history.id
+                  ? null
+                  : history.id
+              )
+            }
+            className="
+              bg-blue-500
+              hover:bg-blue-600
+              text-white
+              px-3
+              py-1
+              rounded
+              text-sm
+            "
+          >
+            {expandedStandings === history.id
+              ? "Hide Standings"
+              : "View Standings"}
+          </button>
+
+        </div>
+
+{expandedStandings === history.id && (
+
+  <div className="mt-4 border-t pt-4">
+
+    <div className="grid grid-cols-4 gap-2 mb-4">
+
+  <div className="bg-blue-50 rounded-lg p-2 text-center">
+    <div className="text-xs text-gray-500">
+      Players
+    </div>
+
+    <div className="font-bold text-blue-600">
+      {history.standings.length}
+    </div>
+  </div>
+
+  <div className="bg-green-50 rounded-lg p-2 text-center">
+    <div className="text-xs text-gray-500">
+      Leader
+    </div>
+
+    <div className="font-bold text-green-600">
+      {history.standings[0]?.playerName}
+    </div>
+  </div>
+
+  <div className="bg-purple-50 rounded-lg p-2 text-center">
+
+  <div className="text-xs text-gray-500">
+    Matches
+  </div>
+
+  <div className="font-bold text-purple-600">
+    {history.matchCount || 0}
+  </div>
+
+</div>
+
+  <div className="bg-orange-50 rounded-lg p-2 text-center">
+    <div className="text-xs text-gray-500">
+      Total Games
+    </div>
+
+    <div className="font-bold text-orange-600">
+      {
+        history.standings.reduce(
+          (sum, player) =>
+            sum + player.gamesPlayed,
+          0
+        )
+      }
+    </div>
+  </div>
+
+</div>
+
+      {[...history.standings]
+  .sort((a, b) => {
+
+    const winRateA =
+      a.gamesPlayed > 0
+        ? a.wins / a.gamesPlayed
+        : 0;
+
+    const winRateB =
+      b.gamesPlayed > 0
+        ? b.wins / b.gamesPlayed
+        : 0;
+
+    if (winRateB !== winRateA) {
+      return winRateB - winRateA;
+    }
+
+    return b.wins - a.wins;
+  })
+  .map(
+      (player, index) => (
+
+        <div
+          key={player.playerId}
+          className="
+            flex
+            justify-between
+            border-b
+            py-2
+          "
+        >
+
+          <div>
+
+            {index === 0 && "🥇 "}
+            {index === 1 && "🥈 "}
+            {index === 2 && "🥉 "}
+
+            #{index + 1}
+
+            {" "}
+
+            {player.playerName}
+
+          </div>
+
+          <div className="text-sm">
+
+          GP: {player.gamesPlayed}
+|
+W: {player.wins}
+|
+L: {player.losses}
+|
+WR: {
+  player.gamesPlayed > 0
+    ? Math.round(
+        (player.wins /
+          player.gamesPlayed) *
+          100
+      )
+    : 0
+}%
+
+          </div>
+
+        </div>
+
+      )
+    )}
+
+  </div>
+
 )}
+
+
+      </div>
+    ))
+)}
+
+    </div>
+  )
+}
+
+{/* STANDINGS VIEW END */}
+
 {/* STANDINGS VIEW END */}
 
 {/* ATTENDANCE VIEW START */}
 
-{activeTab === "attendance" && (<div className="bg-white rounded-xl shadow p-4">
+{activeTab === "attendance" && (
+  <div className="bg-white rounded-xl shadow p-4">
     <div className="flex justify-between items-center mb-4">
       <h2 className="text-2xl font-bold">
         👥 Attendance
       </h2>
+<button
+  onClick={exportAttendance}
+  className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm"
+>
+  📤 Export CSV
+</button>
 
       <button
         onClick={clearAttendanceRecords}
@@ -1789,7 +3028,7 @@ attended
     </div>
 
     <div className="text-2xl font-bold text-blue-600">
-      {attendance.length}
+      {currentAttendance.length}
     </div>
 
   </div>
@@ -1891,9 +3130,204 @@ attended
 
 )}
 
+<h3 className="font-semibold text-gray-700 mt-8 mb-3">
+  📚 Attendance History
+</h3>
+
+{Object.keys(groupedAttendance).length === 0 ? (
+  <p>No attendance history.</p>
+) : (
+  Object.entries(groupedAttendance)
+    .sort(
+      ([a], [b]) => Number(b) - Number(a)
+    )
+    .map(
+  ([session, records]) => {
+
+const sessionMatchCount =
+  groupedMatches[session]?.length || 0;
+
+const sessionSummary =
+  getSessionSummary(
+    groupedMatches[session] || []
+  );
+
+return (
+        <div
+          key={session}
+          className="border rounded-xl p-5 mb-4 bg-white shadow-sm"
+        >
+            <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
+
+           <div>
+
+  <h4 className="font-bold text-blue-600">
+    Session {session}
+  </h4>
+
+
+<div className="text-xs text-gray-500">
+  {new Date(
+    records[0].timestamp
+  ).toLocaleDateString()}
+</div>
+
+
+</div>
+
+<div className="grid grid-cols-3 gap-2 w-72">
+
+  <div className="bg-blue-50 rounded-lg p-2 text-center">
+
+    <div className="text-xs text-gray-500">
+      Players
+    </div>
+
+    <div className="font-bold text-blue-600">
+      {
+        new Set(
+          records.map(
+            r => r.playerId
+          )
+        ).size
+      }
+    </div>
+
+  </div>
+
+  <div className="bg-green-50 rounded-lg p-2 text-center">
+    <div className="text-xs text-gray-500">
+      Matches
+    </div>
+
+    <div className="font-bold text-green-600">
+      {sessionMatchCount}
+    </div>
+  </div>
+
+  <div className="bg-orange-50 rounded-lg p-2 text-center">
+    <div className="text-xs text-gray-500">
+      Avg Match
+    </div>
+
+    <div className="font-bold text-orange-600">
+      {sessionSummary.avgDuration}m
+    </div>
+  </div>
+</div>
+
+          </div>
+          {sessionSummary.bestRecord && (
+
+  <div className="mt-4 text-center">
+
+    <div className="text-sm text-gray-500">
+      🏆 Best Session Record
+    </div>
+
+    <div className="font-semibold text-yellow-600">
+
+      {sessionSummary.topRecordPlayers
+        .map(p => p.name)
+        .join(", ")}
+
+    </div>
+
+    <div className="text-xs text-gray-500">
+
+      {sessionSummary.bestRecord.wins}W -
+      {sessionSummary.bestRecord.losses}L
+
+      {" • "}
+
+      {Math.round(
+        sessionSummary.bestRecord.winRate * 100
+      )}%
+
+    </div>
+
+  </div>
+
+)}
+<div className="mt-4 flex justify-center">
+  
+  <button
+    onClick={() =>
+      setExpandedAttendance(
+        expandedAttendance === session
+          ? null
+          : session
+      )
+    }
+    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+  >
+
+    {expandedAttendance === session
+      ? "Hide Attendance"
+      : "View Attendance"}
+  </button>
+
+</div>
+
+
+{expandedAttendance === session && (
+
+  <div className="mt-4 border-t pt-4">
+
+    <div className="font-semibold text-gray-700 mb-3">
+      👥 Attendance List
+    </div>
+
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+    
+    {[
+      ...new Map(
+        records.map((r) => [
+          r.playerId,
+          r,
+        ])
+      ).values(),
+    ]
+      .sort((a, b) =>
+        a.playerName.localeCompare(
+          b.playerName
+        )
+      )
+      .map((record) => (
+
+       <div
+  key={record.id}
+  className="
+  bg-slate-50
+  border
+  rounded-lg
+  px-3
+  py-2
+  text-center
+  text-sm
+  hover:bg-slate-100
+"
+>
+  {record.playerName}
+</div>
+
+      ))}
+
+  </div>
+  </div>
+
+)}
+
+</div>
+
+    );
+  })
+)}
+
 </div>
 
 )}
+
 
 {/* ATTENDANCE VIEW END */}
 
@@ -1903,8 +3337,15 @@ attended
     <div className="flex justify-between items-center mb-6">
 
   <h2 className="text-2xl font-bold">
-    📜 Match History ({matches.length})
+    📜 Match History ({matches.length} Total)
   </h2>
+
+<button
+  onClick={exportMatches}
+  className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm"
+>
+  📤 Export CSV
+</button>
 
   <button
     onClick={clearHistory}
@@ -1917,7 +3358,8 @@ attended
     {matches.length === 0 ? (
       <p>No matches recorded yet.</p>
     ) : (
-      Object.entries(groupedMatches)
+
+    Object.entries(groupedMatches)
   .sort(
     ([a], [b]) => Number(b) - Number(a)
   )
@@ -1936,21 +3378,42 @@ attended
 >
 
 <div className="flex justify-between items-center mb-3">
-<div>
-  <h3 className="text-xl font-bold text-blue-600">
-    📂 Session {session}
-  </h3>
-</div>
-  <button
-    onClick={() =>
-      deleteSession(Number(session))
-    }
-    className="bg-red-100 text-red-600 hover:bg-red-200 px-2 py-1 rounded text-xs"
-  >
-    Delete
-  </button>
-</div>
 
+  <div>
+    <h3 className="text-xl font-bold text-blue-600">
+      📂 Session {session}
+    </h3>
+  </div>
+
+  <div className="flex gap-2">
+
+    <button
+      onClick={() =>
+        setExpandedMatchSession(
+          expandedMatchSession === session
+            ? null
+            : session
+        )
+      }
+      className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"
+    >
+      {expandedMatchSession === session
+        ? "Hide Matches"
+        : "View Matches"}
+    </button>
+
+    <button
+      onClick={() =>
+        deleteSession(Number(session))
+      }
+      className="bg-red-100 text-red-600 hover:bg-red-200 px-2 py-1 rounded text-xs"
+    >
+      Delete
+    </button>
+
+  </div>
+
+</div>
 
 <p className="text-sm text-gray-500 mb-4">
   🗓️{" "}
@@ -2040,7 +3503,9 @@ attended
 
 </div>
 
-
+{expandedMatchSession === session && (
+  <>
+    
             {sessionMatches.map(
               (match, index) => (
 
@@ -2068,9 +3533,33 @@ attended
     🟣 {match.teamB.join(" & ")}
   </div>
 
+  <div className="flex items-center gap-2">
+
   <div className="text-green-600 font-semibold">
     🏆 Winner: Team {match.winner}
   </div>
+
+<select
+  value={match.winner}
+  onChange={(e) =>
+    editMatchWinner(
+      match.id,
+      e.target.value
+    )
+  }
+  className="border rounded px-2 py-1 text-xs"
+>
+  <option value="A">
+    Team A
+  </option>
+
+  <option value="B">
+    Team B
+  </option>
+</select>
+
+</div>
+
 
 </div>
 
@@ -2088,6 +3577,8 @@ attended
 
               )
             )}
+              </>
+              )}
           </div>
         );
       })
@@ -2097,9 +3588,18 @@ attended
 
 {/* MATCH HISTORY VIEW END */}
 
+
+
 {/* DASHBOARD VIEW START */}
 
-{activeTab === "dashboard" && (<div className="grid md:grid-cols-3 gap-6">
+{activeTab === "dashboard" && (
+
+<DndContext
+  onDragEnd={handleDragEnd}
+>
+
+<div className="grid md:grid-cols-3 gap-6">
+  <DroppableQueue>
           <div className="bg-white rounded-xl shadow p-4">
             <h2 className="text-2xl font-bold mb-4">
               Waiting Queue
@@ -2123,9 +3623,15 @@ attended
   "
 >
                   <div>
-                    <div>
-                      {index + 1}. {player.name}
-                    </div>
+<div className="flex items-center gap-2">
+  <span>
+    {index + 1}.
+  </span>
+
+  <DraggablePlayer
+    player={player}
+  />
+</div>
 
                     <div className="text-sm text-gray-500">
   Games: {player.gamesPlayed} |
@@ -2141,11 +3647,20 @@ attended
       ? "text-red-600"
       : "text-gray-500"
   }`}
+  
 >
+  
   {player.bracket
     ? player.bracket.toUpperCase()
     : "NORMAL"}
+
 </div>
+{player.priority && (
+  <div className="text-yellow-600 font-bold text-xs">
+    ⭐ PRIORITY
+  </div>
+
+)}
                   </div>
 
 
@@ -2178,6 +3693,35 @@ attended
   </select>
 
   <div className="flex gap-1">
+    <button
+  onClick={async () => {
+
+    const updatedPlayers =
+      players.map((p) =>
+        p.id === player.id
+          ? {
+              ...p,
+              priority: !p.priority,
+            }
+          : p
+      );
+
+    setPlayers(updatedPlayers);
+
+    await saveDirectoryPlayer({
+      ...player,
+      priority: !player.priority,
+    });
+  }}
+  className={`px-2 py-1 rounded text-sm ${
+    player.priority
+      ? "bg-yellow-500 text-white"
+      : "bg-gray-200"
+  }`}
+>
+  ⭐
+</button>
+
     <button
       onClick={() => {
         const courtId =
@@ -2215,14 +3759,20 @@ attended
               ))
             )}
           </div>
-
+</DroppableQueue>
           <div className="md:col-span-2">
             <div className="grid md:grid-cols-2 gap-4">
+              
               {courts.map((court) => (
-                <div
-                  key={court.id}
-                  className="bg-white rounded-xl shadow p-5"
-                >
+
+<DroppableCourt
+  key={court.id}
+  courtId={court.id}
+>
+
+  <div
+    className="bg-white rounded-xl shadow p-5"
+  >
                   <h2 className="text-2xl font-bold mb-4">
                     Court {court.id}
                   </h2>
@@ -2260,8 +3810,13 @@ attended
   key={player.id}
   className="bg-blue-100 p-2 rounded mb-1 flex justify-between items-center"
 >
-  <span>{player.name}</span>
-
+<DroppableCourtPlayer
+  player={player}
+>
+  <DraggableCourtPlayer
+    player={player}
+  />
+</DroppableCourtPlayer>
   <button
     onClick={() =>
       removeCourtPlayer(
@@ -2287,11 +3842,17 @@ attended
       .slice(2, 4)
       .map((player) => (
 
-       <div
+     <div
   key={player.id}
   className="bg-purple-100 p-2 rounded mb-1 flex justify-between items-center"
 >
-  <span>{player.name}</span>
+  <DroppableCourtPlayer
+  player={player}
+>
+  <DraggableCourtPlayer
+    player={player}
+  />
+</DroppableCourtPlayer>
 
   <button
     onClick={() =>
@@ -2338,14 +3899,19 @@ attended
     Team B Wins
   </button>
 </div>
+              </div>
 
+</DroppableCourt>
 
-                </div>
-              ))}
+))
+}
+
             </div>
           </div>
         </div>
+        </DndContext>
         )}
+
       </div> 
     </div>
   );
